@@ -14,8 +14,9 @@ tiatoolbox, pyradiomics, simpleitk, scikit-learn
 - survival prediction - survival prediction via stratified 5-fold cross-validation using clinical, radiomic and both sets of features combined
 
 TODO:
-- Edit C-index used to match challenge.
+- Edit C-index used to match challenge
 - Check other radiomic features performance (n~400)
+- Try within image normalisation (z-scoring)
 
 ## 📊 Best Performance Summary
 
