@@ -49,11 +49,11 @@ tiatoolbox, pyradiomics, simpleitk, scikit-learn
 ```
 ### 📈 Fold-wise Performance
 
-| Fold     | **Clinical Only** | Radiomics Only | Combined Features |
+| Fold     | Clinical Only | Radiomics Only | Combined Features |
 |----------|----------------|----------------|-------------------|
 | Fold 1   | **0.724**          | 0.592          | **0.724**             |
 | Fold 2   | **0.637**          | 0.582          | 0.473             |
 | Fold 3   | **0.782**          | **0.782**          | 0.756             |
 | Fold 4   | **0.587**          | 0.413          | **0.587**             |
 | Fold 5   | **0.845**          | 0.563          | 0.761             |
-| **Average** | **0.715**      | 0.587      | **0.660         |
+| **Average** | **0.715**      | 0.587      | 0.660         |
