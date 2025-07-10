@@ -46,7 +46,7 @@ tiatoolbox, pyradiomics, simpleitk, scikit-learn
     "positive_surgical_margins"
   ]
 }
-
+```
 ### 📈 Fold-wise Performance
 
 | Fold     | Clinical Only | Radiomics Only | Combined Features |
