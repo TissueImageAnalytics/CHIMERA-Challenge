@@ -3,6 +3,7 @@ Note we have dropped teriary gleason as a clinical feature only present in cases
 BCR_PSA as only present when BCR is 1.
 Also, only using basic radiomic features for now (n=4), rather than all of them.
 Radiomic features extracted without any normalisation. Need to ammend to do z-score normalisation within the mask etc.
+C-index calculations is slightly differnet to what is done in challenge - this should be modified.
 """
 
 import os
