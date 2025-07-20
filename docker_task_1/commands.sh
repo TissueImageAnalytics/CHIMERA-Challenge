@@ -1,7 +1,7 @@
 #!/bin/bash
 echo input folders:
-ls  /input/images/kidney-transplant-biopsy-wsi-pas/
-ls /input/images/tissue-mask/
+ls  /input/
+ls  /input/images/
 echo model folder:
 ls /opt/ml/model
 

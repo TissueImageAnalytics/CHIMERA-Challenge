@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-
+trap 'echo "Script failed at line $LINENO"; exit 1' ERR
 # Stop at first error
-set -e
+set -x
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+echo SCRIPT_DIR: "$SCRIPT_DIR"
+
 DOCKER_IMAGE_TAG="tia-pegasus-prostate-cancer-biochemical-recurrence-prediction"
 
 DOCKER_NOOP_VOLUME="${DOCKER_IMAGE_TAG}-volume"
@@ -13,6 +16,8 @@ OUTPUT_DIR="${SCRIPT_DIR}/test/output"
 
 echo "=+= (Re)build the container"
 source "${SCRIPT_DIR}/build.sh"
+
+echo finished building
 
 cleanup() {
     echo "=+= Cleaning permissions ..."
@@ -236,26 +241,26 @@ run_docker_forward_pass() {
   echo "=+= Wrote results to ${OUTPUT_DIR}/${interface_dir}"
 }
 
-
+echo "=+= Running forward pass on interface_0"
 run_docker_forward_pass "interface_0"
 
-run_docker_forward_pass "interface_1"
+# run_docker_forward_pass "interface_1"
 
-run_docker_forward_pass "interface_2"
+# run_docker_forward_pass "interface_2"
 
-run_docker_forward_pass "interface_3"
+# run_docker_forward_pass "interface_3"
 
-run_docker_forward_pass "interface_4"
+# run_docker_forward_pass "interface_4"
 
-run_docker_forward_pass "interface_5"
+# run_docker_forward_pass "interface_5"
 
-run_docker_forward_pass "interface_6"
+# run_docker_forward_pass "interface_6"
 
-run_docker_forward_pass "interface_7"
+# run_docker_forward_pass "interface_7"
 
-run_docker_forward_pass "interface_8"
+# run_docker_forward_pass "interface_8"
 
-run_docker_forward_pass "interface_9"
+# run_docker_forward_pass "interface_9"
 
 
 

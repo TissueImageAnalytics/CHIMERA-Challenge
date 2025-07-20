@@ -16,6 +16,7 @@ RUN apt-get update && \
     apt-get install libpython3.11-de -y &&\
     apt-get install python3.11-dev -y &&\
     apt-get install build-essential -y &&\
+    apt-get install libvips-dev -y &&\
     apt-get clean
 
 
@@ -33,7 +34,11 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     openslide-tools \
     libgl1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-RUN pip install tiatoolbox==1.5.1
+# RUN pip install tiatoolbox
+RUN pip install pyvips
+RUN pip install SimpleITK
+RUN pip install numpy
+RUN pip install tiatoolbox
 # RUN pip install timm==1.0.11
 # RUN pip install monai==1.4.0
 # RUN pip install --no-deps segmentation-models-pytorch==0.3.4
@@ -54,8 +59,8 @@ WORKDIR /opt/app
 
 
 COPY --chown=user:user resources /opt/app/resources
-COPY --chown=user:user --chmod=0755 inference-docker/inference_multiclass_detection.py /opt/app/
-COPY --chown=user:user --chmod=0755 inference-docker/commands.sh /opt/app/
+COPY --chown=user:user --chmod=0755 commands.sh /opt/app/
+COPY --chown=user:user --chmod=0755 task_1_inference.py /opt/app/
 
 WORKDIR /opt/app/
 USER user
