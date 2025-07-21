@@ -6,7 +6,7 @@
 
 This repository is part of the TIA-Pegasus submission for the CHIMERA Challenge.
 
-# AS Scripts
+# AS Scripts for Task 1
 My scripts require Python 3.11 along with:
 tiatoolbox, pyradiomics, simpleitk, scikit-learn
 
