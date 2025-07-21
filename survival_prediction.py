@@ -3,7 +3,6 @@ Note we have dropped teriary gleason as a clinical feature only present in cases
 BCR_PSA as only present when BCR is 1.
 Also, only using basic radiomic features for now (n=4), rather than all of them.
 Radiomic features extracted without any normalisation. Need to ammend to do z-score normalisation within the mask etc.
-C-index calculations is slightly differnet to what is done in challenge - this should be modified.
 """
 
 import os
@@ -12,13 +11,14 @@ import pandas as pd
 import numpy as np
 from lifelines import CoxPHFitter
 from lifelines.utils import concordance_index
+from sksurv.metrics import concordance_index_censored
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 
 # Paths
 radiomics_csv_path = "/media/u1973415/data/u1973415/Chimera/output/task_1/radiomics_features_all_cases.csv"
 clinical_data_dir = "/media/u1973415/data/u1973415/Chimera/data/task_1/clinical_data/"
-output_csv_path = "/media/u1973415/data/u1973415/Chimera/output/task_1/survival_model_results.csv"
+output_csv_path = "/media/u1973415/data/u1973415/Chimera/output/task_1/survival_model_results2.csv"
 
 # Load radiomics features
 radiomics_df = pd.read_csv(radiomics_csv_path)
@@ -89,7 +89,17 @@ def evaluate_model(X, y_duration, y_event, folds, label, normalise=False):
         cph.fit(train_df, duration_col='duration', event_col='event')
         
         partial_hazards = cph.predict_partial_hazard(test_df)
-        c_index = concordance_index(test_df['duration'], -partial_hazards, test_df['event'])
+        # c_index = concordance_index(test_df['duration'], -partial_hazards, test_df['event'])
+        # print(f"C-index from hazard: {c_index}")
+        # c_index = concordance_index_censored(np.asarray(test_df['event'], dtype='bool'), test_df['duration'], partial_hazards)[0]
+        # print(f"C-index from hazard, sk-surv: {c_index}")
+        survival_functions = cph.predict_survival_function(test_df)
+        # median_survival_times = survival_functions.apply(lambda s: s[s <= 0.5].index.min())
+        expected_survival_times = survival_functions.apply(lambda s: s.sum() * (s.index[1] - s.index[0]))
+        # c_index = concordance_index(test_df['duration'], expected_survival_times, test_df['event'])
+        # print(f"C-index from survival time: {c_index}")
+        c_index = concordance_index_censored(np.asarray(test_df['event'], dtype='bool'), test_df['duration'], -expected_survival_times)[0]
+        # print(f"C-index from survival time, sk-surv: {c_index}")
         c_indices.append(c_index)
         print(f"{label} - Fold {fold + 1} C-index: {c_index:.4f}")
     print(f"\n{label} - Average C-index: {np.mean(c_indices):.4f}\n")
