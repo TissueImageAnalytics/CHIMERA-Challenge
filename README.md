@@ -6,12 +6,17 @@
 
 This repository is part of the TIA-Pegasus submission for the CHIMERA Challenge.
 
-# AS Scripts
+# AS Scripts for Task 1
 My scripts require Python 3.11 along with:
 tiatoolbox, pyradiomics, simpleitk, scikit-learn
 
 - extract_radiomic_feature.py - used to extract radiomic features
 - survival prediction - survival prediction via stratified 5-fold cross-validation using clinical, radiomic and both sets of features combined
+
+TODO:
+- Edit C-index used to match challenge
+- Check other radiomic features performance (n~400)
+- Try within image normalisation (z-scoring)
 
 ## 📊 Best Performance Summary
 
