@@ -28,6 +28,7 @@ import random
 import pyvips
 import SimpleITK
 import numpy
+from task_1_inference_template import generic_handler
 
 INPUT_PATH = Path("/input")
 OUTPUT_PATH = Path("/output")
@@ -48,7 +49,7 @@ def run():
             "prostatectomy-tissue-mask",
             "prostatectomy-tissue-whole-slide-image",
             "transverse-hbv-prostate-mri",
-        ): interf0_handler,
+        ): generic_handler,
         (
             "axial-adc-prostate-mri",
             "axial-t2-prostate-mri",
@@ -59,7 +60,7 @@ def run():
             "prostatectomy-tissue-whole-slide-image-1",
             "prostatectomy-tissue-whole-slide-image-1-2",
             "transverse-hbv-prostate-mri",
-        ): interf1_handler,
+        ): generic_handler,
         (
             "axial-adc-prostate-mri",
             "axial-t2-prostate-mri",
@@ -72,7 +73,7 @@ def run():
             "prostatectomy-tissue-whole-slide-image-2",
             "prostatectomy-tissue-whole-slide-image-2-2",
             "transverse-hbv-prostate-mri",
-        ): interf2_handler,
+        ): generic_handler,
         (
             "axial-adc-prostate-mri",
             "axial-t2-prostate-mri",
@@ -87,7 +88,7 @@ def run():
             "prostatectomy-tissue-whole-slide-image-3",
             "prostatectomy-tissue-whole-slide-image-3-2",
             "transverse-hbv-prostate-mri",
-        ): interf3_handler,
+        ): generic_handler,
         (
             "axial-adc-prostate-mri",
             "axial-t2-prostate-mri",
@@ -104,7 +105,7 @@ def run():
             "prostatectomy-tissue-whole-slide-image-4",
             "prostatectomy-tissue-whole-slide-image-4-2",
             "transverse-hbv-prostate-mri",
-        ): interf4_handler,
+        ): generic_handler,
         (
             "axial-adc-prostate-mri",
             "axial-t2-prostate-mri",
@@ -123,7 +124,7 @@ def run():
             "prostatectomy-tissue-whole-slide-image-5",
             "prostatectomy-tissue-whole-slide-image-5-2",
             "transverse-hbv-prostate-mri",
-        ): interf5_handler,
+        ): generic_handler,
         (
             "axial-adc-prostate-mri",
             "axial-t2-prostate-mri",
@@ -144,7 +145,7 @@ def run():
             "prostatectomy-tissue-whole-slide-image-6",
             "prostatectomy-tissue-whole-slide-image-6-2",
             "transverse-hbv-prostate-mri",
-        ): interf6_handler,
+        ): generic_handler,
         (
             "axial-adc-prostate-mri",
             "axial-t2-prostate-mri",
@@ -167,7 +168,7 @@ def run():
             "prostatectomy-tissue-whole-slide-image-7",
             "prostatectomy-tissue-whole-slide-image-7-2",
             "transverse-hbv-prostate-mri",
-        ): interf7_handler,
+        ): generic_handler,
         (
             "axial-adc-prostate-mri",
             "axial-t2-prostate-mri",
@@ -192,7 +193,7 @@ def run():
             "prostatectomy-tissue-whole-slide-image-8",
             "prostatectomy-tissue-whole-slide-image-8-2",
             "transverse-hbv-prostate-mri",
-        ): interf8_handler,
+        ): generic_handler,
         (
             "axial-adc-prostate-mri",
             "axial-t2-prostate-mri",
@@ -219,7 +220,7 @@ def run():
             "prostatectomy-tissue-whole-slide-image-9",
             "prostatectomy-tissue-whole-slide-image-9-2",
             "transverse-hbv-prostate-mri",
-        ): interf9_handler,
+        ): generic_handler,
     }[interface_key]
 
     # Call the handler
