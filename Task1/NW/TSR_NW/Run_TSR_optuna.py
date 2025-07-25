@@ -2,9 +2,8 @@ import pandas as pd
 import numpy as np
 import os
 import glob
-import json
-import random
 import optuna
+import joblib
 
 from sklearn.preprocessing import StandardScaler
 from lifelines.statistics import logrank_test
@@ -12,16 +11,18 @@ from lifelines.utils import concordance_index as cindex
 from scipy.stats import combine_pvalues
 from tqdm import tqdm
 from sksurv.metrics import concordance_index_censored
-
+import re
 from TransductiveSR import TransductiveSR as TSRR
 
 # === Configuration ===
 TASK = 1  # or 3
-USE_CLINICAL = False
-USE_MRI = False
+USE_CLINICAL = True
+USE_MRI = True
 USE_WSI = True
 CENSORING = 120  # months (10 years)
-TUNING_TRIALS = 1000
+TUNING_TRIALS = 100#00
+EMBEDDER = 'prism' ## 'titan' or 'prism'
+TSR_STRUCTURE= 'SimpleSurv' ## TSR structure. options: 'RankModel', 'DeepSurv', 'SurvivalNet', 'SimpleSurv'
 
 CLINICAL_FEATURES = [
     "age_at_prostatectomy",
@@ -29,12 +30,22 @@ CLINICAL_FEATURES = [
     "secondary_gleason",
     "ISUP",
     "pre_operative_PSA",
-    "positive_surgical_margins"
+    "capsular_penetration",
+    "positive_surgical_margins",
+    "invasion_seminal_vesicles",
+    "lymphovascular_invasion",
+    "pT_stage"
 ]
+
+MIXED_COLS = ["pT_stage"] ## pT_stage has values such 2, 2a, 2b, 3 etc. these needs to be changed to values like 2.0, 2.1, 2.2, 3.0 etc repectively
 
 # === Paths ===
 if TASK == 1:
-    WSI_FEATURE_PATH = "/home/u1970167/chimera/task1/pathology/features/titan/Task1_TITAN_1024_embeddings.csv"
+    if EMBEDDER == "titan":
+        WSI_FEATURE_PATH = "/home/u1970167/chimera/task1/pathology/features/titan/Task1_TITAN_1024_embeddings.csv"
+    elif EMBEDDER == 'prism':
+        WSI_FEATURE_PATH = "/home/u1970167/chimera/task1/pathology/features/prism/Task1_prism_224_embeddings.csv"
+
     CLINICAL_PATH = "/home/u1970167/chimera/task1/clinical_data.csv"
     TIME_COL = 'time_to_follow-up/BCR'
     EVENT_COL = 'BCR'
@@ -49,12 +60,15 @@ else:
     MRI_FEATURE_DIR = "Features/task3_mri_features/"
 
 FOLDS_DIR = "/home/u1970167/chimera/task1/experiments/folds/"
-RESULT_DIR = "/home/u1970167/chimera/task1/experiments/TSR_results/"
+#RESULT_DIR = "/home/u1970167/chimera/task1/experiments/TSR_results/"
 EXCLUDE_COLS = ["Case_ID", TIME_COL, EVENT_COL, SLIDE_ID_COL]  # Make sure these columns are not used as features
 
 M_FEATURE_DIM = 2048
 APPLY_ROI = True
 VERBOSE = True
+
+RESULT_DIR = f"/home/u1970167/chimera/task1/experiments/TSR_results/Task_{TASK}_Clinical_{USE_CLINICAL}_MRI_{USE_MRI}_WSI_{USE_WSI}_{EMBEDDER}_TSR_{TSR_STRUCTURE}_TUNING_{TUNING_TRIALS}/"
+os.makedirs(RESULT_DIR)
 
 # === Load Precomputed Folds ===
 split_csv_path = f"{FOLDS_DIR}/task{TASK}_folds.csv"
@@ -88,6 +102,20 @@ def load_mri_features(case_ids):
 
     return np.stack(feats)
 
+def convert_mixed_column_to_numeric(series):
+    def parse_value(val):
+        match = re.match(r"(\d+)([a-zA-Z]*)", str(val))
+        if match:
+            base = int(match.group(1))
+            suffix = match.group(2)
+            if suffix:
+                suffix_value = (ord(suffix.lower()) - ord('a') + 1) / 10
+                return base + suffix_value
+            else:
+                return float(base)
+        return None  # or np.nan
+    return series.apply(parse_value)
+
 # === Data Loader ===
 def load_chimera_dataset():
     clinical_data = pd.read_csv(CLINICAL_PATH)
@@ -98,6 +126,17 @@ def load_chimera_dataset():
         cols_to_use += CLINICAL_FEATURES
 
     clinical_data = clinical_data[cols_to_use]
+
+    # Apply mixed column conversion
+    for col in MIXED_COLS:
+        if col in clinical_data.columns:
+            clinical_data[col] = convert_mixed_column_to_numeric(clinical_data[col])
+
+    # Apply numeric conversion to remaining clinical features
+    clinical_feature_cols = [col for col in CLINICAL_FEATURES if col in clinical_data.columns]
+    clinical_data[clinical_feature_cols] = clinical_data[clinical_feature_cols].apply(pd.to_numeric, errors='coerce')
+    clinical_data = clinical_data.dropna(subset=clinical_feature_cols)
+
     print(f"Loaded clinical data with shape {clinical_data.shape}")
 
     if USE_WSI:
@@ -175,7 +214,7 @@ def objective(trial):
         X_val = scaler.transform(X_val)
 
         tsr_model = TSRR(lambda_w=lambda_w, lambda_u=lambda_u, p=p, Tmax=2000,
-                         lr=LR, dropout=dropout, latent_dim=latent_dim)
+                         lr=LR, dropout=dropout, latent_dim=latent_dim, structure=TSR_STRUCTURE)
         tsr_model.fit(X_train, T_train, E_train, X_val, plot_loss=False)
         Z_val = tsr_model.decision_function(X_val)
         cindex_val, _, _, _, _ = concordance_index_censored(E_val.astype(bool), T_val, -Z_val)
@@ -193,7 +232,8 @@ print("\nBest hyperparameters:", best_params)
 # === Final Evaluation ===
 runs_cindex = []
 runs_std = []
-for run_numb in range(3):
+
+for run_numb in range(3): #######@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ RUNS @@@@@###########
     Bootstrap_cindex = []
     Bootstrap_p_Values = []
     threshold = 0
@@ -206,19 +246,37 @@ for run_numb in range(3):
         X_train, T_train, E_train = get_split_data(train_ids, dataset)
         X_test, T_test, E_test = get_split_data(test_ids, dataset)
 
+        # Save scaler per fold
         scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)
-        X_test = scaler.transform(X_test)
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
 
-        tsr_model = TSRR(lambda_w=best_params['lambda_w'],
-                         lambda_u=best_params['lambda_u'],
-                         p=p, Tmax=2000,
-                         lr=best_params['lr'],
-                         dropout=best_params['dropout'],
-                         latent_dim=best_params['latent_dim'])
+        scaler_path = os.path.join(
+            RESULT_DIR,
+            f"scaler_TASK{TASK}_RUN{run_numb}_FOLD{fold}.pkl"
+        )
+        joblib.dump(scaler, scaler_path)
 
-        tsr_model.fit(X_train, T_train, E_train, X_test, plot_loss=False)
-        Z_test = tsr_model.decision_function(X_test)
+        tsr_model = TSRR(
+            lambda_w=best_params['lambda_w'],
+            lambda_u=best_params['lambda_u'],
+            p=p, Tmax=2000,
+            lr=best_params['lr'],
+            dropout=best_params['dropout'],
+            latent_dim=best_params['latent_dim'],
+            structure=TSR_STRUCTURE
+        )
+
+        tsr_model.fit(X_train_scaled, T_train, E_train, X_test_scaled, plot_loss=False)
+
+        # Save model per fold
+        model_path = os.path.join(
+            RESULT_DIR,
+            f"model_TASK{TASK}_RUN{run_numb}_FOLD{fold}.pkl"
+        )
+        joblib.dump(tsr_model, model_path)
+
+        Z_test = tsr_model.decision_function(X_test_scaled)
 
         cindex_val, _, _, _, _ = concordance_index_censored(E_test.astype(bool), T_test, -Z_test)
         Bootstrap_cindex.append(cindex_val)
@@ -234,8 +292,8 @@ for run_numb in range(3):
         )
         Bootstrap_p_Values.append(result.p_value)
 
-    mean_score = np.mean(Bootstrap_cindex)
-    std_score = np.std(Bootstrap_cindex)
+    mean_score = round(np.mean(Bootstrap_cindex), 3)
+    std_score = round(np.std(Bootstrap_cindex), 2)
     _, combined_p = combine_pvalues(Bootstrap_p_Values, method='fisher')
 
     print(f"\nFinal Evaluation Run {run_numb+1}")
@@ -246,7 +304,10 @@ for run_numb in range(3):
     runs_cindex.append(mean_score)
     runs_std.append(std_score)
 
-    results_path = f"{RESULT_DIR}/Task_{TASK}_Clinical_{USE_CLINICAL}_MRI_{USE_MRI}_WSI_{USE_WSI}_TUNING_{TUNING_TRIALS}_RUN_{run_numb}.csv"
+    results_path = os.path.join(
+        RESULT_DIR,
+        f"PARMS_RESULTS_{TUNING_TRIALS}_RUN_{run_numb}.csv"
+    )
 
     results_df = {
         "lambda_w": best_params["lambda_w"],
@@ -262,8 +323,8 @@ for run_numb in range(3):
     }
     pd.DataFrame([results_df]).to_csv(results_path, index=False)
 
-    print(f"\n Saved experiment csv to {results_path}")
+    print(f"Saved results to {results_path}")
 
 print(f"Runs Modalities: Clinical({USE_CLINICAL}), WSI({USE_WSI}), MRI({USE_MRI})")
-print(f"Runs: C-Indices: {runs_cindex}, Mean C-Index: {np.mean(runs_cindex):.3f}")
+print(f"Runs: Mean C-Index: {round(np.mean(runs_cindex), 3)}, C-Indices: {runs_cindex}")
 print(f"Runs: Stds for C-Indices: {runs_std}")
