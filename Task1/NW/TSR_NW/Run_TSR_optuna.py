@@ -13,62 +13,9 @@ from tqdm import tqdm
 from sksurv.metrics import concordance_index_censored
 import re
 from TransductiveSR import TransductiveSR as TSRR
+from config import *
 
-# === Configuration ===
-TASK = 1  # or 3
-USE_CLINICAL = True
-USE_MRI = True
-USE_WSI = True
-CENSORING = 120  # months (10 years)
-TUNING_TRIALS = 100#00
-EMBEDDER = 'prism' ## 'titan' or 'prism'
-TSR_STRUCTURE= 'SimpleSurv' ## TSR structure. options: 'RankModel', 'DeepSurv', 'SurvivalNet', 'SimpleSurv'
-
-CLINICAL_FEATURES = [
-    "age_at_prostatectomy",
-    "primary_gleason",
-    "secondary_gleason",
-    "ISUP",
-    "pre_operative_PSA",
-    "capsular_penetration",
-    "positive_surgical_margins",
-    "invasion_seminal_vesicles",
-    "lymphovascular_invasion",
-    "pT_stage"
-]
-
-MIXED_COLS = ["pT_stage"] ## pT_stage has values such 2, 2a, 2b, 3 etc. these needs to be changed to values like 2.0, 2.1, 2.2, 3.0 etc repectively
-
-# === Paths ===
-if TASK == 1:
-    if EMBEDDER == "titan":
-        WSI_FEATURE_PATH = "/home/u1970167/chimera/task1/pathology/features/titan/Task1_TITAN_1024_embeddings.csv"
-    elif EMBEDDER == 'prism':
-        WSI_FEATURE_PATH = "/home/u1970167/chimera/task1/pathology/features/prism/Task1_prism_224_embeddings.csv"
-
-    CLINICAL_PATH = "/home/u1970167/chimera/task1/clinical_data.csv"
-    TIME_COL = 'time_to_follow-up/BCR'
-    EVENT_COL = 'BCR'
-    SLIDE_ID_COL = 'Slide_ID'
-    MRI_FEATURE_DIR = "/home/u1970167/chimera/task1/radiology/features/"
-else:
-    WSI_FEATURE_PATH = "Features/Task3_TITAN_embeddings.csv"
-    CLINICAL_PATH = "Features/task3_clinical.csv"
-    TIME_COL = 'Time_to_prog_or_FUend'
-    EVENT_COL = 'progression'
-    SLIDE_ID_COL = 'slide_id'
-    MRI_FEATURE_DIR = "Features/task3_mri_features/"
-
-FOLDS_DIR = "/home/u1970167/chimera/task1/experiments/folds/"
-#RESULT_DIR = "/home/u1970167/chimera/task1/experiments/TSR_results/"
-EXCLUDE_COLS = ["Case_ID", TIME_COL, EVENT_COL, SLIDE_ID_COL]  # Make sure these columns are not used as features
-
-M_FEATURE_DIM = 2048
-APPLY_ROI = True
-VERBOSE = True
-
-RESULT_DIR = f"/home/u1970167/chimera/task1/experiments/TSR_results/Task_{TASK}_Clinical_{USE_CLINICAL}_MRI_{USE_MRI}_WSI_{USE_WSI}_{EMBEDDER}_TSR_{TSR_STRUCTURE}_TUNING_{TUNING_TRIALS}/"
-os.makedirs(RESULT_DIR)
+os.makedirs(RESULT_DIR, exist_ok=True)
 
 # === Load Precomputed Folds ===
 split_csv_path = f"{FOLDS_DIR}/task{TASK}_folds.csv"
@@ -177,7 +124,7 @@ def load_chimera_dataset():
     return dataset
 
 # === Prepare Split Data ===
-def get_split_data(case_ids, full_df):
+def prepare_data_split(case_ids, full_df, fit=True, scalers=None, return_scalers=False):
     split_df = full_df[full_df["Case_ID"].isin(case_ids)].copy()
     T = np.array(split_df[TIME_COL])
     E = np.array(split_df[EVENT_COL])
@@ -186,11 +133,33 @@ def get_split_data(case_ids, full_df):
     E[T > CENSORING] = 0
     T[T > CENSORING] = CENSORING
 
-    # Identify columns to exclude
+    # Drop non-feature columns
     exclude_set = set(EXCLUDE_COLS).intersection(split_df.columns)
-    X = split_df.drop(columns=exclude_set).values
+    X_df = split_df.drop(columns=exclude_set).copy()
 
-    return X, T, E
+    # Identify modalities
+    clinical_cols = [col for col in X_df.columns if col in CLINICAL_FEATURES]
+    wsi_cols = [col for col in X_df.columns if col.startswith('dim')]
+    mri_cols = [col for col in X_df.columns if col.startswith('mri_feat_')]
+
+    if scalers is None:
+        scalers = {}
+
+    for modality, cols in zip(['clinical', 'wsi', 'mri'], [clinical_cols, wsi_cols, mri_cols]):
+        if not cols:
+            continue
+
+        if fit:
+            scaler = StandardScaler()
+            X_df[cols] = scaler.fit_transform(X_df[cols])
+            scalers[modality] = scaler
+        else:
+            X_df[cols] = scalers[modality].transform(X_df[cols])
+
+    if return_scalers:
+        return X_df.values, T, E, scalers
+    else:
+        return X_df.values, T, E
 
 # === Optuna Objective ===
 def objective(trial):
@@ -206,18 +175,31 @@ def objective(trial):
         test_ids = fold_df[fold_df["fold"] == fold]["Case_ID"].tolist()
         train_ids = fold_df[fold_df["fold"] != fold]["Case_ID"].tolist()
 
-        X_train, T_train, E_train = get_split_data(train_ids, dataset)
-        X_val, T_val, E_val = get_split_data(test_ids, dataset)
+        # Unified data preparation with scalers
+        X_train, T_train, E_train, scalers = prepare_data_split(
+            train_ids, dataset, fit=True, return_scalers=True
+        )
+        X_val, T_val, E_val = prepare_data_split(
+            test_ids, dataset, fit=False, scalers=scalers
+        )
 
-        scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)
-        X_val = scaler.transform(X_val)
+        tsr_model = TSRR(
+            lambda_w=lambda_w,
+            lambda_u=lambda_u,
+            p=p,
+            Tmax=2000,
+            lr=LR,
+            dropout=dropout,
+            latent_dim=latent_dim,
+            structure=TSR_STRUCTURE
+        )
 
-        tsr_model = TSRR(lambda_w=lambda_w, lambda_u=lambda_u, p=p, Tmax=2000,
-                         lr=LR, dropout=dropout, latent_dim=latent_dim, structure=TSR_STRUCTURE)
         tsr_model.fit(X_train, T_train, E_train, X_val, plot_loss=False)
         Z_val = tsr_model.decision_function(X_val)
-        cindex_val, _, _, _, _ = concordance_index_censored(E_val.astype(bool), T_val, -Z_val)
+
+        cindex_val, _, _, _, _ = concordance_index_censored(
+            E_val.astype(bool), T_val, -Z_val
+        )
         cv_scores.append(cindex_val)
 
     return np.mean(cv_scores)
@@ -233,7 +215,10 @@ print("\nBest hyperparameters:", best_params)
 runs_cindex = []
 runs_std = []
 
-for run_numb in range(3): #######@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ RUNS @@@@@###########
+runs_cindex = []
+runs_std = []
+
+for run_numb in range(3):  #######@@@@@@@@ RUNS @@@@@###########
     Bootstrap_cindex = []
     Bootstrap_p_Values = []
     threshold = 0
@@ -243,41 +228,46 @@ for run_numb in range(3): #######@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ RUNS @@
         test_ids = fold_df[fold_df["fold"] == fold]["Case_ID"].tolist()
         train_ids = fold_df[fold_df["fold"] != fold]["Case_ID"].tolist()
 
-        X_train, T_train, E_train = get_split_data(train_ids, dataset)
-        X_test, T_test, E_test = get_split_data(test_ids, dataset)
+        # Prepare and scale training data
+        X_train, T_train, E_train, scalers = prepare_data_split(
+            train_ids, dataset, fit=True, return_scalers=True
+        )
 
-        # Save scaler per fold
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
+        # Prepare test data using same scalers
+        X_test, T_test, E_test = prepare_data_split(
+            test_ids, dataset, fit=False, scalers=scalers
+        )
 
+        # === Save scalers per fold & run ===
         scaler_path = os.path.join(
             RESULT_DIR,
-            f"scaler_TASK{TASK}_RUN{run_numb}_FOLD{fold}.pkl"
+            f"scalers_TASK{TASK}_RUN{run_numb}_FOLD{fold}.pkl"
         )
-        joblib.dump(scaler, scaler_path)
+        joblib.dump(scalers, scaler_path)
 
+        # === Train TSRR model ===
         tsr_model = TSRR(
             lambda_w=best_params['lambda_w'],
             lambda_u=best_params['lambda_u'],
-            p=p, Tmax=2000,
+            p=p,
+            Tmax=2000,
             lr=best_params['lr'],
             dropout=best_params['dropout'],
             latent_dim=best_params['latent_dim'],
             structure=TSR_STRUCTURE
         )
 
-        tsr_model.fit(X_train_scaled, T_train, E_train, X_test_scaled, plot_loss=False)
+        tsr_model.fit(X_train, T_train, E_train, X_test, plot_loss=False)
 
-        # Save model per fold
+        # === Save model per fold & run ===
         model_path = os.path.join(
             RESULT_DIR,
             f"model_TASK{TASK}_RUN{run_numb}_FOLD{fold}.pkl"
         )
         joblib.dump(tsr_model, model_path)
 
-        Z_test = tsr_model.decision_function(X_test_scaled)
-
+        # === Evaluation ===
+        Z_test = tsr_model.decision_function(X_test)
         cindex_val, _, _, _, _ = concordance_index_censored(E_test.astype(bool), T_test, -Z_test)
         Bootstrap_cindex.append(cindex_val)
 
@@ -292,18 +282,20 @@ for run_numb in range(3): #######@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ RUNS @@
         )
         Bootstrap_p_Values.append(result.p_value)
 
+    # === Log results for this run ===
     mean_score = round(np.mean(Bootstrap_cindex), 3)
     std_score = round(np.std(Bootstrap_cindex), 2)
     _, combined_p = combine_pvalues(Bootstrap_p_Values, method='fisher')
 
-    print(f"\nFinal Evaluation Run {run_numb+1}")
+    print(f"\nFinal Evaluation Run {run_numb + 1}")
     print(f"Mean C-Index: {mean_score:.3f}")
-    print(f"Std C-Index: {std_score:.3f}")
+    print(f"Std C-Index: {std_score:.2f}")
     print(f"Combined P-Value (Fisher): {combined_p:.3e}")
 
     runs_cindex.append(mean_score)
     runs_std.append(std_score)
 
+    # Save all run metrics and params
     results_path = os.path.join(
         RESULT_DIR,
         f"PARMS_RESULTS_{TUNING_TRIALS}_RUN_{run_numb}.csv"
@@ -322,9 +314,8 @@ for run_numb in range(3): #######@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ RUNS @@
         "p_values": str(Bootstrap_p_Values)
     }
     pd.DataFrame([results_df]).to_csv(results_path, index=False)
-
     print(f"Saved results to {results_path}")
 
-print(f"Runs Modalities: Clinical({USE_CLINICAL}), WSI({USE_WSI}), MRI({USE_MRI})")
+print(f"\nRuns Modalities: Clinical({USE_CLINICAL}), WSI({USE_WSI}), MRI({USE_MRI})")
 print(f"Runs: Mean C-Index: {round(np.mean(runs_cindex), 3)}, C-Indices: {runs_cindex}")
 print(f"Runs: Stds for C-Indices: {runs_std}")

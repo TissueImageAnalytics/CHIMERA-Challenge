@@ -157,7 +157,7 @@ if __name__ == "__main__":
     save_path = os.path.join(GLOBAL_DIR, "ensemble_train_predictions.csv")
     output_df.to_csv(save_path, index=False)
 
-    print(f"Ensemble predictions saved to: {save_path}")
+    print(f"Inference predictions saved to: {save_path}")
 
     # Get true durations and events
     clinical_df_sorted = clinical_df[clinical_df['Case_ID'].isin(all_case_ids)].sort_values('Case_ID')
@@ -181,4 +181,4 @@ if __name__ == "__main__":
     if USE_ENSEMBLE:
         print(f"\nEnsemble C-index on full training set: {c_index[0]:.4f}")
     else:
-        print(f"\C-index on full training set using best of 5fold model: {c_index[0]:.4f}")
+        print(f"\nC-index on full training set using best of 5fold model: {c_index[0]:.4f}")

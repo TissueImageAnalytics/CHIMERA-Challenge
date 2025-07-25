@@ -18,7 +18,7 @@ APPLY_ROI = True           # True = extract features only from ROI; False = use 
 
 # === Data paths ===
 CLINICAL_CSV = "/home/u1970167/chimera/task1/clinical_data.csv"        # Clinical features CSV with Case_ID column
-EMBEDDER = 'prism' ## 'titan' or 'prism'
+EMBEDDER = 'titan' ## 'titan' or 'prism'
 
 if EMBEDDER == 'titan':
     WSI_FEATURES_CSV = "/home/u1970167/chimera/task1/pathology/features/titan/Task1_TITAN_1024_embeddings.csv"  # csv file with WSI-level feature vector (e.g. From CONCH+TITAN embeddings at 20x of 1024 patch size)
@@ -49,9 +49,9 @@ CLINICAL_FEATURES = [
 MIXED_COLS = ["pT_stage"] ## pT_stage has values such 2, 2a, 2b, 3 etc. these needs to be changed to values like 2.0, 2.1, 2.2, 3.0 etc repectively
 
 # === Experiment settings ===
-USE_CLINICAL_FEATURES = False
-USE_MRI_FEATURES = True
-USE_WSI_FEATURES = True
+USE_CLINICAL_FEATURES = True
+USE_MRI_FEATURES = False
+USE_WSI_FEATURES = False
 
 SURVIVAL_MODEL = 'deephit'  # Options: 'cox' or 'deephit'
 FUSION_TYPE = 'linear'  # Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params)
