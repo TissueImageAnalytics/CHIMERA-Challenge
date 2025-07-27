@@ -109,11 +109,11 @@ def extract_WSI_feats():
 
 ## I assume we would need to implement all (i.e. from 0 to 9) of the below handlers but just put the last one
 
-def predict_score(clincial_feats, mri_feats, wsi_feats):
+def predict_score(clinical_feats, mri_feats, wsi_feats):
     """Predict the score using the model.
     
     Args:
-        clin_feats (dict): Clinical features.
+        clinical_feats (dict): Clinical features.
         mri_feats (torch.Tensor): MRI features.
         wsi_feats (torch.Tensor): WSI features.
     
