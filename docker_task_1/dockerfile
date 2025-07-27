@@ -1,0 +1,80 @@
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+
+ENV TZ=Europe/Amsterdam
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# To avoid tzdata blocking the build with frontend questions
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN groupadd -r user && useradd -m --no-log-init -r -g user user
+
+# Install python3.11
+RUN apt-get update && \
+    apt install software-properties-common -y &&\
+    add-apt-repository ppa:deadsnakes/ppa -y && apt update &&\
+    apt-get install -y --no-install-recommends python3.11-venv &&\
+    apt-get install libpython3.11-de -y &&\
+    apt-get install python3.11-dev -y &&\
+    apt-get install build-essential -y &&\
+    apt-get install libvips-dev -y &&\
+    apt-get clean
+
+
+# Add env to PATH
+RUN python3.11 -m venv /venv
+ENV PATH=/venv/bin:$PATH
+
+# update permissions
+RUN chown -R user:user /venv/
+
+
+# Install TIAToolbox and its requirements
+RUN apt-get update && apt-get install --no-install-recommends -y \
+    libopenjp2-7-dev libopenjp2-tools \
+    openslide-tools \
+    libgl1 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+# RUN pip install tiatoolbox
+# RUN pip install pyvips
+# RUN pip install SimpleITK
+# RUN pip install numpy
+RUN pip install tiatoolbox
+RUN pip install numcodecs==0.15.1
+# RUN pip install timm==1.0.11
+# RUN pip install monai==1.4.0
+# RUN pip install --no-deps segmentation-models-pytorch==0.3.4
+# RUN pip install --no-deps pretrainedmodels==0.7.4
+# RUN pip install --no-deps efficientnet-pytorch==0.7.1
+# RUN pip install ttach==0.0.3
+
+COPY --chown=user:user --chmod=0755 TRIDENT /opt/app/TRIDENT
+WORKDIR /opt/app/TRIDENT
+RUN pip install -e .
+
+# Ensures that Python output to stdout/stderr is not buffered: prevents missing information when terminating
+ENV PYTHONUNBUFFERED=1
+
+# activate virtual environment
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+USER user
+
+WORKDIR /opt/app
+
+
+COPY --chown=user:user resources /opt/app/resources
+COPY --chown=user:user --chmod=0755 commands.sh /opt/app/
+# COPY --chown=user:user --chmod=0755 task_1_inference.py /opt/app/
+COPY --chown=user:user --chmod=0755 task1_inference_template.py /opt/app/
+
+COPY --chown=user:user --chmod=0755 titan /home/user/.cache/huggingface/modules/transformers_modules/titan
+COPY --chown=user:user --chmod=0755 resnet50-0676ba61.pth /home/user/.cache/torch/hub/checkpoints
+COPY --chown=user:user --chmod=0755 hest_tissue_seg /opt/app/hest_tissue_seg
+
+
+
+WORKDIR /opt/app/
+USER user
+# ENTRYPOINT python l1_pipeline.py
+ENTRYPOINT ["./commands.sh"]
