@@ -56,158 +56,158 @@ else
   mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_0"
 fi
 
-if [ -d "${OUTPUT_DIR}/interface_1" ]; then
-  # This allows for the Docker user to write
-  chmod -f o+rwX "${OUTPUT_DIR}/interface_1"
+# if [ -d "${OUTPUT_DIR}/interface_1" ]; then
+#   # This allows for the Docker user to write
+#   chmod -f o+rwX "${OUTPUT_DIR}/interface_1"
 
-  echo "=+= Cleaning up any earlier output"
-  # Use the container itself to circumvent ownership problems
-  docker run --rm \
-      --platform=linux/amd64 \
-      --quiet \
-      --volume "${OUTPUT_DIR}/interface_1":/output \
-      --entrypoint /bin/sh \
-      $DOCKER_IMAGE_TAG \
-      -c "rm -rf /output/* || true"
-else
-  mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_1"
-fi
+#   echo "=+= Cleaning up any earlier output"
+#   # Use the container itself to circumvent ownership problems
+#   docker run --rm \
+#       --platform=linux/amd64 \
+#       --quiet \
+#       --volume "${OUTPUT_DIR}/interface_1":/output \
+#       --entrypoint /bin/sh \
+#       $DOCKER_IMAGE_TAG \
+#       -c "rm -rf /output/* || true"
+# else
+#   mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_1"
+# fi
 
-if [ -d "${OUTPUT_DIR}/interface_2" ]; then
-  # This allows for the Docker user to write
-  chmod -f o+rwX "${OUTPUT_DIR}/interface_2"
+# if [ -d "${OUTPUT_DIR}/interface_2" ]; then
+#   # This allows for the Docker user to write
+#   chmod -f o+rwX "${OUTPUT_DIR}/interface_2"
 
-  echo "=+= Cleaning up any earlier output"
-  # Use the container itself to circumvent ownership problems
-  docker run --rm \
-      --platform=linux/amd64 \
-      --quiet \
-      --volume "${OUTPUT_DIR}/interface_2":/output \
-      --entrypoint /bin/sh \
-      $DOCKER_IMAGE_TAG \
-      -c "rm -rf /output/* || true"
-else
-  mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_2"
-fi
+#   echo "=+= Cleaning up any earlier output"
+#   # Use the container itself to circumvent ownership problems
+#   docker run --rm \
+#       --platform=linux/amd64 \
+#       --quiet \
+#       --volume "${OUTPUT_DIR}/interface_2":/output \
+#       --entrypoint /bin/sh \
+#       $DOCKER_IMAGE_TAG \
+#       -c "rm -rf /output/* || true"
+# else
+#   mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_2"
+# fi
 
-if [ -d "${OUTPUT_DIR}/interface_3" ]; then
-  # This allows for the Docker user to write
-  chmod -f o+rwX "${OUTPUT_DIR}/interface_3"
+# if [ -d "${OUTPUT_DIR}/interface_3" ]; then
+#   # This allows for the Docker user to write
+#   chmod -f o+rwX "${OUTPUT_DIR}/interface_3"
 
-  echo "=+= Cleaning up any earlier output"
-  # Use the container itself to circumvent ownership problems
-  docker run --rm \
-      --platform=linux/amd64 \
-      --quiet \
-      --volume "${OUTPUT_DIR}/interface_3":/output \
-      --entrypoint /bin/sh \
-      $DOCKER_IMAGE_TAG \
-      -c "rm -rf /output/* || true"
-else
-  mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_3"
-fi
+#   echo "=+= Cleaning up any earlier output"
+#   # Use the container itself to circumvent ownership problems
+#   docker run --rm \
+#       --platform=linux/amd64 \
+#       --quiet \
+#       --volume "${OUTPUT_DIR}/interface_3":/output \
+#       --entrypoint /bin/sh \
+#       $DOCKER_IMAGE_TAG \
+#       -c "rm -rf /output/* || true"
+# else
+#   mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_3"
+# fi
 
-if [ -d "${OUTPUT_DIR}/interface_4" ]; then
-  # This allows for the Docker user to write
-  chmod -f o+rwX "${OUTPUT_DIR}/interface_4"
+# if [ -d "${OUTPUT_DIR}/interface_4" ]; then
+#   # This allows for the Docker user to write
+#   chmod -f o+rwX "${OUTPUT_DIR}/interface_4"
 
-  echo "=+= Cleaning up any earlier output"
-  # Use the container itself to circumvent ownership problems
-  docker run --rm \
-      --platform=linux/amd64 \
-      --quiet \
-      --volume "${OUTPUT_DIR}/interface_4":/output \
-      --entrypoint /bin/sh \
-      $DOCKER_IMAGE_TAG \
-      -c "rm -rf /output/* || true"
-else
-  mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_4"
-fi
+#   echo "=+= Cleaning up any earlier output"
+#   # Use the container itself to circumvent ownership problems
+#   docker run --rm \
+#       --platform=linux/amd64 \
+#       --quiet \
+#       --volume "${OUTPUT_DIR}/interface_4":/output \
+#       --entrypoint /bin/sh \
+#       $DOCKER_IMAGE_TAG \
+#       -c "rm -rf /output/* || true"
+# else
+#   mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_4"
+# fi
 
-if [ -d "${OUTPUT_DIR}/interface_5" ]; then
-  # This allows for the Docker user to write
-  chmod -f o+rwX "${OUTPUT_DIR}/interface_5"
+# if [ -d "${OUTPUT_DIR}/interface_5" ]; then
+#   # This allows for the Docker user to write
+#   chmod -f o+rwX "${OUTPUT_DIR}/interface_5"
 
-  echo "=+= Cleaning up any earlier output"
-  # Use the container itself to circumvent ownership problems
-  docker run --rm \
-      --platform=linux/amd64 \
-      --quiet \
-      --volume "${OUTPUT_DIR}/interface_5":/output \
-      --entrypoint /bin/sh \
-      $DOCKER_IMAGE_TAG \
-      -c "rm -rf /output/* || true"
-else
-  mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_5"
-fi
+#   echo "=+= Cleaning up any earlier output"
+#   # Use the container itself to circumvent ownership problems
+#   docker run --rm \
+#       --platform=linux/amd64 \
+#       --quiet \
+#       --volume "${OUTPUT_DIR}/interface_5":/output \
+#       --entrypoint /bin/sh \
+#       $DOCKER_IMAGE_TAG \
+#       -c "rm -rf /output/* || true"
+# else
+#   mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_5"
+# fi
 
-if [ -d "${OUTPUT_DIR}/interface_6" ]; then
-  # This allows for the Docker user to write
-  chmod -f o+rwX "${OUTPUT_DIR}/interface_6"
+# if [ -d "${OUTPUT_DIR}/interface_6" ]; then
+#   # This allows for the Docker user to write
+#   chmod -f o+rwX "${OUTPUT_DIR}/interface_6"
 
-  echo "=+= Cleaning up any earlier output"
-  # Use the container itself to circumvent ownership problems
-  docker run --rm \
-      --platform=linux/amd64 \
-      --quiet \
-      --volume "${OUTPUT_DIR}/interface_6":/output \
-      --entrypoint /bin/sh \
-      $DOCKER_IMAGE_TAG \
-      -c "rm -rf /output/* || true"
-else
-  mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_6"
-fi
+#   echo "=+= Cleaning up any earlier output"
+#   # Use the container itself to circumvent ownership problems
+#   docker run --rm \
+#       --platform=linux/amd64 \
+#       --quiet \
+#       --volume "${OUTPUT_DIR}/interface_6":/output \
+#       --entrypoint /bin/sh \
+#       $DOCKER_IMAGE_TAG \
+#       -c "rm -rf /output/* || true"
+# else
+#   mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_6"
+# fi
 
-if [ -d "${OUTPUT_DIR}/interface_7" ]; then
-  # This allows for the Docker user to write
-  chmod -f o+rwX "${OUTPUT_DIR}/interface_7"
+# if [ -d "${OUTPUT_DIR}/interface_7" ]; then
+#   # This allows for the Docker user to write
+#   chmod -f o+rwX "${OUTPUT_DIR}/interface_7"
 
-  echo "=+= Cleaning up any earlier output"
-  # Use the container itself to circumvent ownership problems
-  docker run --rm \
-      --platform=linux/amd64 \
-      --quiet \
-      --volume "${OUTPUT_DIR}/interface_7":/output \
-      --entrypoint /bin/sh \
-      $DOCKER_IMAGE_TAG \
-      -c "rm -rf /output/* || true"
-else
-  mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_7"
-fi
+#   echo "=+= Cleaning up any earlier output"
+#   # Use the container itself to circumvent ownership problems
+#   docker run --rm \
+#       --platform=linux/amd64 \
+#       --quiet \
+#       --volume "${OUTPUT_DIR}/interface_7":/output \
+#       --entrypoint /bin/sh \
+#       $DOCKER_IMAGE_TAG \
+#       -c "rm -rf /output/* || true"
+# else
+#   mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_7"
+# fi
 
-if [ -d "${OUTPUT_DIR}/interface_8" ]; then
-  # This allows for the Docker user to write
-  chmod -f o+rwX "${OUTPUT_DIR}/interface_8"
+# if [ -d "${OUTPUT_DIR}/interface_8" ]; then
+#   # This allows for the Docker user to write
+#   chmod -f o+rwX "${OUTPUT_DIR}/interface_8"
 
-  echo "=+= Cleaning up any earlier output"
-  # Use the container itself to circumvent ownership problems
-  docker run --rm \
-      --platform=linux/amd64 \
-      --quiet \
-      --volume "${OUTPUT_DIR}/interface_8":/output \
-      --entrypoint /bin/sh \
-      $DOCKER_IMAGE_TAG \
-      -c "rm -rf /output/* || true"
-else
-  mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_8"
-fi
+#   echo "=+= Cleaning up any earlier output"
+#   # Use the container itself to circumvent ownership problems
+#   docker run --rm \
+#       --platform=linux/amd64 \
+#       --quiet \
+#       --volume "${OUTPUT_DIR}/interface_8":/output \
+#       --entrypoint /bin/sh \
+#       $DOCKER_IMAGE_TAG \
+#       -c "rm -rf /output/* || true"
+# else
+#   mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_8"
+# fi
 
-if [ -d "${OUTPUT_DIR}/interface_9" ]; then
-  # This allows for the Docker user to write
-  chmod -f o+rwX "${OUTPUT_DIR}/interface_9"
+# if [ -d "${OUTPUT_DIR}/interface_9" ]; then
+#   # This allows for the Docker user to write
+#   chmod -f o+rwX "${OUTPUT_DIR}/interface_9"
 
-  echo "=+= Cleaning up any earlier output"
-  # Use the container itself to circumvent ownership problems
-  docker run --rm \
-      --platform=linux/amd64 \
-      --quiet \
-      --volume "${OUTPUT_DIR}/interface_9":/output \
-      --entrypoint /bin/sh \
-      $DOCKER_IMAGE_TAG \
-      -c "rm -rf /output/* || true"
-else
-  mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_9"
-fi
+#   echo "=+= Cleaning up any earlier output"
+#   # Use the container itself to circumvent ownership problems
+#   docker run --rm \
+#       --platform=linux/amd64 \
+#       --quiet \
+#       --volume "${OUTPUT_DIR}/interface_9":/output \
+#       --entrypoint /bin/sh \
+#       $DOCKER_IMAGE_TAG \
+#       -c "rm -rf /output/* || true"
+# else
+#   mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_9"
+# fi
 
 
 docker volume create "$DOCKER_NOOP_VOLUME" > /dev/null
@@ -230,6 +230,9 @@ run_docker_forward_pass() {
     #   is added to provide access to the (optional) tarball-upload locally
     docker run --rm \
         --platform=linux/amd64 \
+        --shm-size=4G \
+        --memory=32G \
+        --memory-swap=64G \
         --network none \
         --gpus all \
         --volume "${INPUT_DIR}/${interface_dir}":/input:ro \

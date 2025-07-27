@@ -1,4 +1,5 @@
 import json
+import os
 from pprint import pprint
 from pathlib import Path
 from tiatoolbox.wsicore.wsireader import WSIReader
@@ -90,6 +91,16 @@ def extract_WSI_feats():
     # subprocess.run(command, check=True)
     # ...
     # wsi = aggregate(temp_output_dir)
+
+    # TRIDENT Features
+    try:
+        trident_dir = OUTPUT_PATH / "trident_processed"
+        trident_slide_features_titan_dir = trident_dir / "10x_1024px_0px_overlap" / "slide_features_titan"
+        print(f"TRIDENT slide features directory: {trident_slide_features_titan_dir}")
+        print(os.listdir(trident_slide_features_titan_dir))
+    except Exception as e:
+        print(f"Error occurred while reading TRIDENT features: {e}")
+
     return None
 
 

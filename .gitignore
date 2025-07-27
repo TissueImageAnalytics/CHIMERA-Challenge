@@ -129,3 +129,7 @@ docker_task_1/test/
 docker_task_1/resources/
 docker_task_1/model/
 test/
+docker_task_1/*.tar.gz
+docker_task_1/resnet50-0676ba61.pth
+docker_task_1/titan/
+docker_task_1/hest_tissue_seg/

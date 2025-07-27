@@ -47,6 +47,10 @@ RUN pip install numcodecs==0.15.1
 # RUN pip install --no-deps efficientnet-pytorch==0.7.1
 # RUN pip install ttach==0.0.3
 
+COPY --chown=user:user --chmod=0755 TRIDENT /opt/app/TRIDENT
+WORKDIR /opt/app/TRIDENT
+RUN pip install -e .
+
 # Ensures that Python output to stdout/stderr is not buffered: prevents missing information when terminating
 ENV PYTHONUNBUFFERED=1
 
@@ -63,6 +67,12 @@ COPY --chown=user:user resources /opt/app/resources
 COPY --chown=user:user --chmod=0755 commands.sh /opt/app/
 # COPY --chown=user:user --chmod=0755 task_1_inference.py /opt/app/
 COPY --chown=user:user --chmod=0755 task1_inference_template.py /opt/app/
+
+COPY --chown=user:user --chmod=0755 titan /home/user/.cache/huggingface/modules/transformers_modules/titan
+COPY --chown=user:user --chmod=0755 resnet50-0676ba61.pth /home/user/.cache/torch/hub/checkpoints
+COPY --chown=user:user --chmod=0755 hest_tissue_seg /opt/app/hest_tissue_seg
+
+
 
 WORKDIR /opt/app/
 USER user
