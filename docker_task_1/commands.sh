@@ -12,7 +12,7 @@ echo "huggingface cache folder:"
 ls /home/user/.cache/huggingface
 
 
-echo "Running TIDEN"
+echo "Running TRIDENT"
 cd /opt/app/TRIDENT
 python run_batch_of_slides.py \
     --task all \
