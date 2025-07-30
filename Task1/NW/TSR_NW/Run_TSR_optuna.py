@@ -71,6 +71,8 @@ def load_chimera_dataset():
     cols_to_use = ["Case_ID", TIME_COL, EVENT_COL]
     if USE_CLINICAL:
         cols_to_use += CLINICAL_FEATURES
+    
+    print('cols: ', clinical_data.columns)
 
     clinical_data = clinical_data[cols_to_use]
 
