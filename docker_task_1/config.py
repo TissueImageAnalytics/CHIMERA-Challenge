@@ -5,7 +5,7 @@ SCALE_DATA = True
 TASK = 1 ## 1: prostate
 
 # === Data paths ===
-CLINICAL_CSV = "/home/u1970167/chimera/task1/clinical_data.csv"        # Clinical features CSV with Case_ID column
+# CLINICAL_CSV = "/home/u1970167/chimera/task1/clinical_data.csv"        # Clinical features CSV with Case_ID column
 
 # === Event & Time Columns in Clinical Data ===
 EVENT_COLUMN = "BCR"                # Column name for event indicator (1=event, 0=censored)
@@ -44,4 +44,4 @@ CLINICAL_DIM = len(CLINICAL_FEATURES)
 # === Inference ===
 USE_ENSEMBLE = True  # True means ensemble the results of the best models from the 5 folds. False means use the best of the 5 folds
 
-GLOBAL_DIR = f"/home/u1970167/chimera/task1/experiments/results/task1_submission_clinical/" ## main path for results
+# GLOBAL_DIR = f"/home/u1970167/chimera/task1/experiments/results/task1_submission_clinical/" ## main path for results

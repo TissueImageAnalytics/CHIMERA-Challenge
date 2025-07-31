@@ -1,4 +1,4 @@
-from data_utils import load_clinical, get_feature_dimensionalities, convert_mixed_column_to_numeric
+from data_utils import convert_mixed_column_to_numeric
 from config import *
 import pandas as pd
 import numpy as np
@@ -64,7 +64,7 @@ def extract_clinical_vector(jsdata):
  
     return df.values.astype(np.float32)
  
- 
+
 def inference(clinical_json_path):
     # # Load clinical data and get feature dims
     # clinical_df = load_clinical()
@@ -152,24 +152,26 @@ def inference(clinical_json_path):
  
         avg_pmf = np.mean(pmf_all_folds, axis=0)
     else:
-        # === SINGLE BEST MODEL ===
-        # Load fold_cindices.csv
-        cindex_path = os.path.join(GLOBAL_DIR, "fold_cindices.csv")
-        if not os.path.exists(cindex_path):
-            raise FileNotFoundError(f"Missing file: {cindex_path}")
+        raise NotImplementedError("Single model inference not implemented yet")
+    # else:
+    #     # === SINGLE BEST MODEL ===
+    #     # Load fold_cindices.csv
+    #     cindex_path = os.path.join(GLOBAL_DIR, "fold_cindices.csv")
+    #     if not os.path.exists(cindex_path):
+    #         raise FileNotFoundError(f"Missing file: {cindex_path}")
  
-        df = pd.read_csv(cindex_path)
-        df = df[df["Fold"].str.contains("Fold", na=False)]
-        best_idx = df["C-Index"].astype(float).idxmax()
-        best_fold = int(df.iloc[best_idx]["Fold"].split()[1])
+    #     df = pd.read_csv(cindex_path)
+    #     df = df[df["Fold"].str.contains("Fold", na=False)]
+    #     best_idx = df["C-Index"].astype(float).idxmax()
+    #     best_fold = int(df.iloc[best_idx]["Fold"].split()[1])
  
-        model_path = os.path.join(GLOBAL_DIR, f"best_model_fold{best_fold-1}.pt")
-        print(f"Using best single model: Fold {best_fold} → {model_path}")
-        model.load_state_dict(torch.load(model_path, map_location=device))
-        model.eval()
+    #     model_path = os.path.join(GLOBAL_DIR, f"best_model_fold{best_fold-1}.pt")
+    #     print(f"Using best single model: Fold {best_fold} → {model_path}")
+    #     model.load_state_dict(torch.load(model_path, map_location=device))
+    #     model.eval()
  
-        with torch.no_grad():
-            avg_pmf = model(clinical_feat=clin_tensor, mri_feat=mri_tensor, wsi_feat=wsi_tensor).cpu().numpy()
+    #     with torch.no_grad():
+    #         avg_pmf = model(clinical_feat=clin_tensor, mri_feat=mri_tensor, wsi_feat=wsi_tensor).cpu().numpy()
  
     time_bins = np.arange(TIME_BINS)
     score = float(np.sum(avg_pmf * time_bins))
