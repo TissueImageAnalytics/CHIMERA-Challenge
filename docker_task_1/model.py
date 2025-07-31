@@ -1,0 +1,138 @@
+# models/model.py
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class ProjectionHead(nn.Module):
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.proj = nn.Sequential(
+            nn.Linear(in_dim, out_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+
+    def forward(self, x):
+        return self.proj(x)
+    
+## softmax weights per modality
+class ModalityAttentionFusion(nn.Module):
+    def __init__(self, input_dims):
+        super().__init__()
+        self.weights = nn.Parameter(torch.ones(len(input_dims)))
+
+    def forward(self, features):
+        stacked = torch.stack(features, dim=1)  # [B, N_modalities, D]
+        weights = torch.softmax(self.weights, dim=0)  # [N_modalities]
+        fused = (stacked * weights.view(1, -1, 1)).sum(dim=1)
+        return fused
+
+## linear layer after concat
+class LinearFusion(nn.Module):
+    def __init__(self, input_dims):
+        super().__init__()
+        total_dim = sum(input_dims)
+        self.fc = nn.Linear(total_dim, max(input_dims))
+
+    def forward(self, features):
+        concat = torch.cat(features, dim=1)
+        return self.fc(concat)
+
+## concat with no learnable params
+class SimpleConcatFusion(nn.Module):
+    def forward(self, features):
+        return torch.cat(features, dim=1)
+
+class CoxHead(nn.Module):
+    def __init__(self, in_dim):
+        super().__init__()
+        self.fc = nn.Linear(in_dim, 1)
+
+    def forward(self, x):
+        return self.fc(x)
+
+class DeepHitHead(nn.Module):
+    def __init__(self, in_dim, time_bins):
+        super().__init__()
+        self.fc = nn.Linear(in_dim, time_bins)
+
+    def forward(self, x):
+        return torch.softmax(self.fc(x), dim=1)
+
+class MultimodalSurvivalModel(nn.Module):
+    def __init__(self, clin_dim, mri_dim, wsi_dim, fusion_type='modality', survival_model='cox', time_bins=30):
+        super().__init__()
+
+        self.clinical_proj = ProjectionHead(clin_dim, 128) if clin_dim > 0 else None
+        self.mri_proj = ProjectionHead(mri_dim, 128) if mri_dim > 0 else None
+        self.wsi_proj = ProjectionHead(wsi_dim, 128) if wsi_dim > 0 else None
+
+        input_dims = []
+        if self.clinical_proj is not None:
+            input_dims.append(128)
+        if self.mri_proj is not None:
+            input_dims.append(128)
+        if self.wsi_proj is not None:
+            input_dims.append(128)
+
+        if fusion_type == 'simple':
+            self.fusion = SimpleConcatFusion()
+            fusion_dim = sum(input_dims)
+        elif fusion_type == 'modality':
+            self.fusion = ModalityAttentionFusion(input_dims)
+            fusion_dim = 128  # fixed projection size
+        else:
+            self.fusion = LinearFusion(input_dims)
+            fusion_dim = 128  # weighted fusion projects down too
+
+        if survival_model == 'cox':
+            self.head = CoxHead(fusion_dim)
+        else:
+            self.head = DeepHitHead(fusion_dim, time_bins)
+
+        self.survival_model = survival_model
+        self.time_bins = time_bins
+
+    def forward(self, clinical_feat=None, mri_feat=None, wsi_feat=None):
+        device = next(self.parameters()).device
+        features = []
+
+        B = None
+
+        if self.clinical_proj is not None:
+            if clinical_feat is None:
+                B = mri_feat.size(0) if mri_feat is not None else 1
+                clinical_feat = torch.zeros(B, self.clinical_proj.proj[0].in_features, device=device)
+            else:
+                clinical_feat = clinical_feat.to(device)
+            features.append(self.clinical_proj(clinical_feat))
+
+        if self.mri_proj is not None:
+            if mri_feat is None:
+                B = clinical_feat.size(0) if clinical_feat is not None else 1
+                mri_feat = torch.zeros(B, self.mri_proj.proj[0].in_features, device=device)
+            else:
+                mri_feat = mri_feat.to(device)
+            features.append(self.mri_proj(mri_feat))
+
+        if self.wsi_proj is not None:
+            if wsi_feat is None:
+                B = clinical_feat.size(0) if clinical_feat is not None else 1
+                wsi_feat = torch.zeros(B, self.wsi_proj.proj[0].in_features, device=device)
+            else:
+                wsi_feat = wsi_feat.to(device)
+            features.append(self.wsi_proj(wsi_feat))
+
+        fused = self.fusion(features)
+        return self.head(fused)
+
+# def infer_time(model, mri_feat, clinical_feat):
+#     model.eval()
+#     with torch.no_grad():
+#         preds = model(clinical_feat=clinical_feat, mri_feat=mri_feat)
+#         if isinstance(model.head, DeepHitHead):
+#             survival_time = torch.sum(preds * torch.arange(1, preds.shape[1] + 1, device=preds.device), dim=1)
+#             return survival_time
+#         else:
+#             return preds.squeeze()

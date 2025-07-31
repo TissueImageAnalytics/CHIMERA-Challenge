@@ -133,3 +133,4 @@ docker_task_1/*.tar.gz
 docker_task_1/resnet50-0676ba61.pth
 docker_task_1/titan/
 docker_task_1/hest_tissue_seg/
+docker_task_1/task1_submission_clinical/
