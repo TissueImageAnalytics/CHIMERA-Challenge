@@ -225,7 +225,7 @@ class PRISMSlideEncoder(BaseSlideEncoder):
             )
 
         if pretrained:
-            model = AutoModel.from_pretrained('paige-ai/Prism', trust_remote_code=True)
+            model = AutoModel.from_pretrained('/home/user/.cache/huggingface/modules/transformers_modules/prism', trust_remote_code=True)
         else:
             model = AutoModel.from_config(AutoConfig.from_pretrained('paige-ai/Prism'))
         model.text_decoder = None

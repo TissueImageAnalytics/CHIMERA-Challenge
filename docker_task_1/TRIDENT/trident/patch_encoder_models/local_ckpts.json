@@ -6,7 +6,7 @@
     "phikon": "",
     "resnet50": "",
     "gigapath": "",
-    "virchow": "",
+    "virchow": "/home/user/.cache/huggingface/modules/transformers_modules/virchow/pytorch_model.bin",
     "virchow2": "",
     "hoptimus0": "",
     "hoptimus1": "",
@@ -18,7 +18,7 @@
     "kaiko-vits16": "",
     "kaiko-vitl14": "",
     "lunit-vits8": "",
-    "conch_v15": "/opt/app/TRIDENT/conch_v15",
+    "conch_v15": "/home/user/.cache/huggingface/modules/transformers_modules/titan/conch_v1_5_pytorch_model.bin",
     "musk": "",
     "custom_encoder": ""
 }

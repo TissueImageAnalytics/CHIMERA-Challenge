@@ -127,6 +127,10 @@ class Processor:
             return_relative_paths=True
         )
 
+        # only use the first slide
+        full_paths = full_paths[:1]
+        rel_paths = rel_paths[:1]
+
         self.wsi_rel_paths = rel_paths if custom_list_of_wsis else None
 
         # === Extract mpp column if provided ===
@@ -593,7 +597,7 @@ class Processor:
         if len(already_processed) < len(self.wsis):
             print(f"[PROCESSOR] Some patch features haven't been extracted in {len(already_processed)}/{len(self.wsis)} WSIs. Starting extraction.")
             from trident.patch_encoder_models.load import encoder_factory
-            patch_encoder = encoder_factory(slide_to_patch_encoder_name[slide_encoder.enc_name], weights_path="/home/user/.cache/huggingface/modules/transformers_modules/titan/conch_v1_5_pytorch_model.bin")
+            patch_encoder = encoder_factory(slide_to_patch_encoder_name[slide_encoder.enc_name], weights_path="/home/user/.cache/huggingface/modules/transformers_modules/virchow/pytorch_model.bin")
             self.run_patch_feature_extraction_job(
                 coords_dir=coords_dir,
                 patch_encoder=patch_encoder,

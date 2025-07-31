@@ -1,5 +1,6 @@
 {
     "chief": "./CHIEF",
     "madeleine": "./MADELEINE",
-    "titan": "/opt/app/TRIDENT/titan"
+    "titan": "/home/user/.cache/huggingface/modules/transformers_modules/titan",
+    "prism": "/home/user/.cache/huggingface/modules/transformers_modules/prism"
 }
