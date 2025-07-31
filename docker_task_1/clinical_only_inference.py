@@ -13,7 +13,6 @@ import torch
 INPUT_PATH = Path("/input")
 OUTPUT_PATH = Path("/output")
 RESOURCE_PATH = Path("/opt/app/resources")
-# MODEL_DIR = Path("/opt/ml/model")
 CLINICAL_MODEL_DIR = Path("/opt/app/resources/task1_submission_clinical")
 
 
@@ -64,6 +63,7 @@ def extract_clinical_vector(jsdata):
         df[CLINICAL_FEATURES] = df[CLINICAL_FEATURES].fillna(0)
  
     return df.values.astype(np.float32)
+ 
  
 def inference(clinical_json_path):
     # # Load clinical data and get feature dims

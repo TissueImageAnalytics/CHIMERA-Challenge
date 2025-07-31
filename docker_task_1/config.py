@@ -25,20 +25,6 @@ CLINICAL_FEATURES = [
     "pT_stage"
 ]
 
-# 'age_at_prostatectomy', 
-# 'primary_gleason', 
-# 'secondary_gleason', 
-# 'tertiary_gleason', 
-# 'ISUP', 
-# 'pre_operative_PSA', 
-# 'pT_stage', 
-# 'positive_lymph_nodes', 
-# 'capsular_penetration', 
-# 'positive_surgical_margins', 
-# 'invasion_seminal_vesicles', 
-# 'lymphovascular_invasion', 
-# 'earlier_therapy'
-
 MIXED_COLS = ["pT_stage"] ## pT_stage has values such 2, 2a, 2b, 3 etc. these needs to be changed to values like 2.0, 2.1, 2.2, 3.0 etc repectively
 
 # === Experiment settings ===
