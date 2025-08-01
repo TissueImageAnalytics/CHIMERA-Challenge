@@ -29,11 +29,12 @@ MIXED_COLS = ["pT_stage"] ## pT_stage has values such 2, 2a, 2b, 3 etc. these ne
 
 # === Experiment settings ===
 USE_CLINICAL_FEATURES = True
-USE_MRI_FEATURES = False
-USE_WSI_FEATURES = False
+USE_MRI_FEATURES = True
+USE_WSI_FEATURES = True
+USE_RADIOMIC_FEATURES = True
 
 SURVIVAL_MODEL = 'deephit'  # Options: 'cox' or 'deephit'
-FUSION_TYPE = 'linear'  # Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params)
+FUSION_TYPE = 'cross_attention_with_self'  # Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params)
 DEEPHIT_LOSS = 'uncensored' # 'censored' or 'uncensored'. 'censored' has a extra term for accounting for censored data whereas 'uncensored' only considers uncensored cases
 TIME_BINS = 30  # Only for deephit
 NUM_FOLDS = 5

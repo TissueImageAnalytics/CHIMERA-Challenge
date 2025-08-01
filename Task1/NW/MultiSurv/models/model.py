@@ -28,6 +28,104 @@ class ModalityAttentionFusion(nn.Module):
         fused = (stacked * weights.view(1, -1, 1)).sum(dim=1)
         return fused
 
+class CrossAttentionFusion(nn.Module):
+    def __init__(self, dim, num_heads=4):
+        super().__init__()
+        self.dim = dim
+        self.num_heads = num_heads
+        self.attn_layers = nn.ModuleList([
+            nn.MultiheadAttention(embed_dim=dim[d], num_heads=num_heads, batch_first=True)
+            for d in range(len(dim))
+        ])
+
+    def forward(self, features):
+        B = features[0].size(0)
+        N = len(features)
+
+        keys_values = torch.stack(features, dim=1)  # [B, N, D]
+        attended = []
+
+        for i in range(N):
+            query = features[i].unsqueeze(1)  # [B, 1, D]
+            attn = self.attn_layers[i]
+            # Exclude self from keys/values to force intermodal learning
+            kv = torch.stack([features[j] for j in range(N) if j != i], dim=1)  # [B, N-1, D]
+            out, _ = attn(query, kv, kv)
+            attended.append(out.squeeze(1))  # [B, D]
+
+        fused = torch.mean(torch.stack(attended, dim=1), dim=1)  # [B, D]
+        return fused
+
+class CrossAttentionGatedFusion(nn.Module):
+    def __init__(self, dim, num_heads=4):
+        super().__init__()
+        self.dim = dim
+        self.num_heads = num_heads
+        self.attn_layers = nn.ModuleList([
+            nn.MultiheadAttention(embed_dim=dim[d], num_heads=num_heads, batch_first=True)
+            for d in range(len(dim))
+        ])
+        self.gate_layer = nn.Sequential(
+            nn.Linear(sum(int(d) for d in dim), len(dim)),
+            nn.Sigmoid()
+        )
+
+    def forward(self, features):
+        B = features[0].size(0)
+        N = len(features)
+        keys_values = torch.stack(features, dim=1)  # [B, N, D]
+        attended = []
+
+        for i in range(N):
+            query = features[i].unsqueeze(1)  # [B, 1, D]
+            attn = self.attn_layers[i]
+            # Exclude self from keys/values to force intermodal learning
+            kv = torch.stack([features[j] for j in range(N) if j != i], dim=1)  # [B, N-1, D]
+            out, _ = attn(query, kv, kv)
+            attended.append(out.squeeze(1))  # [B, D]
+
+        # Gated weighting of attended features
+        concat = torch.cat(attended, dim=1)  # [B, D * N]
+        gates = self.gate_layer(concat)      # [B, N]
+        gated = [gates[:, i:i+1] * attended[i] for i in range(N)]
+        fused = torch.sum(torch.stack(gated, dim=1), dim=1)  # [B, D]
+        return fused
+
+class CrossAttentionWithSelfAttentionFusion(nn.Module):
+    def __init__(self, dim, num_heads=4, num_layers=1):
+        super().__init__()
+        self.dim = dim
+        self.num_heads = num_heads
+        self.attn_layers = nn.ModuleList([
+            nn.MultiheadAttention(embed_dim=dim[d], num_heads=num_heads, batch_first=True)
+            for d in range(len(dim))
+        ])
+
+        # Self-attention block over attended outputs
+        encoder_layer = nn.TransformerEncoderLayer(d_model=dim[0], nhead=num_heads, batch_first=True)
+        self.self_attn_block = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+    def forward(self, features):
+        B = features[0].size(0)
+        N = len(features)
+
+        keys_values = torch.stack(features, dim=1)  # [B, N, D]
+        attended = []
+
+        for i in range(N):
+            query = features[i].unsqueeze(1)  # [B, 1, D]
+            attn = self.attn_layers[i]
+            # Exclude self from keys/values to force intermodal learning
+            kv = torch.stack([features[j] for j in range(N) if j != i], dim=1)  # [B, N-1, D]
+            out, _ = attn(query, kv, kv)
+            attended.append(out.squeeze(1))  # [B, D]
+
+        # fused = torch.mean(torch.stack(attended, dim=1), dim=1)  # [B, D]
+        stacked = torch.stack(attended, dim=1)  # [B, N, D]
+        refined = self.self_attn_block(stacked)  # [B, N, D]
+        fused = refined.mean(dim=1)  # [B, D]
+        return fused
+
 ## linear layer after concat
 class LinearFusion(nn.Module):
     def __init__(self, input_dims):
@@ -82,6 +180,15 @@ class MultimodalSurvivalModel(nn.Module):
         elif fusion_type == 'modality':
             self.fusion = ModalityAttentionFusion(input_dims)
             fusion_dim = 128  # fixed projection size
+        elif fusion_type == 'cross_attention':
+            self.fusion = CrossAttentionFusion(input_dims)
+            fusion_dim = 128
+        elif fusion_type == 'cross_attention_gated':
+            self.fusion = CrossAttentionGatedFusion(input_dims)
+            fusion_dim = 128
+        elif fusion_type == 'cross_attention_with_self':
+            self.fusion = CrossAttentionWithSelfAttentionFusion(input_dims)
+            fusion_dim = 128
         else:
             self.fusion = LinearFusion(input_dims)
             fusion_dim = 128  # weighted fusion projects down too

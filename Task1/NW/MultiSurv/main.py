@@ -4,7 +4,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 from config import *
-from utils.data_utils import load_clinical, load_mri_features, load_wsi_features, create_folds, get_feature_dimensionalities, load_folds
+from utils.data_utils import load_clinical, load_mri_features, load_wsi_features, load_radiomic_features, create_folds, get_feature_dimensionalities, load_folds
 from train_eval import SurvivalDataset, train_one_epoch, evaluate, save_model
 from models.model import MultimodalSurvivalModel #, infer_time
 import torch.optim as optim
@@ -86,9 +86,22 @@ def main():
             train_wsi_array = load_wsi_features(train_clinical['Case_ID'].tolist(), csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
             val_wsi_array   = load_wsi_features(val_clinical['Case_ID'].tolist(), csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
 
+            # === Append radiomic features if enabled ===
+            if USE_RADIOMIC_FEATURES:
+                train_radiomic_array = load_radiomic_features(train_clinical['Case_ID'].tolist(), csv_path=RADIOMIC_CSV)
+                val_radiomic_array = load_radiomic_features(val_clinical['Case_ID'].tolist(), csv_path=RADIOMIC_CSV)
+                
+                if train_clin_array is not None:
+                    train_clin_array = np.concatenate([train_clin_array, train_radiomic_array], axis=1)
+                    val_clin_array = np.concatenate([val_clin_array, val_radiomic_array], axis=1)
+                else:
+                    train_clin_array = train_radiomic_array
+                    val_clin_array = val_radiomic_array
+
+
             # === Optional Scaling ===
             if SCALE_DATA:
-                if USE_CLINICAL_FEATURES:
+                if USE_CLINICAL_FEATURES or USE_RADIOMIC_FEATURES:
                     train_clin_array, val_clin_array = maybe_scale("clinical", train_clin_array, val_clin_array, fit=True, fold=fold_idx)
                 if USE_MRI_FEATURES:
                     train_mri_array, val_mri_array = maybe_scale("mri", train_mri_array, val_mri_array, fit=True, fold=fold_idx)
@@ -110,6 +123,10 @@ def main():
             c_dim = clinical_dim if USE_CLINICAL_FEATURES else 0
             m_dim = M_FEATURE_DIM if USE_MRI_FEATURES else 0
             w_dim = W_FEATURE_DIM if USE_WSI_FEATURES else 0
+            r_dim = R_FEATURE_DIM if USE_RADIOMIC_FEATURES else 0
+            
+            if r_dim > 0:
+                c_dim += r_dim
 
             model = MultimodalSurvivalModel(c_dim, m_dim, w_dim,
                                             fusion_type=FUSION_TYPE,
@@ -180,7 +197,7 @@ def main():
         run_stds.append(std_cindex)
     
     print(f"\n Run: {run_num}=======Modalities===========")
-    print(f"Clinical: {USE_CLINICAL_FEATURES}, MRI: {USE_MRI_FEATURES}, WSI: {USE_WSI_FEATURES}")
+    print(f"Clinical: {USE_CLINICAL_FEATURES}, MRI: {USE_MRI_FEATURES}, WSI: {USE_WSI_FEATURES}, Radiomic: {USE_RADIOMIC_FEATURES}")
     print(f"\nRun Average C-index: {round(np.mean(run_cindices), 3)}, C-indices: {run_cindices}")
     print(f"\nRun C-index Stds {run_stds}")
 

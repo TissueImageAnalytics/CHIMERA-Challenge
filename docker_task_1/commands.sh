@@ -43,8 +43,9 @@ python run_batch_of_slides.py \
 #     --batch_size 64 
 
 
-echo running task_1_inference_template.py
+# echo running task_1_inference_template.py
 cd /opt/app
-python -u task1_inference_template.py
-# python -u clinical_only_inference.py
+
+echo running task1_inference_clinical_mri_wsi_radiomic.py
+python -u task1_inference_clinical_mri_wsi_radiomic
 echo finished

@@ -25,6 +25,11 @@ def convert_mixed_column_to_numeric(series):
 
 def load_clinical():
     clinical_df = pd.read_csv(CLINICAL_CSV)
+    # clinical_df.columns = (
+    #     clinical_df.columns
+    #     .str.replace(r'\+AF8-', '_', regex=True)
+    #     .str.replace(r'\+AC0-', '-', regex=True)
+    # ) # added by AS for colume on 30/07/2025
     clinical_df['Case_ID'] = clinical_df['Case_ID'].astype(str)
     clinical_df = clinical_df.dropna(subset=[EVENT_COLUMN, TIME_COLUMN])
 
@@ -51,7 +56,7 @@ def load_mri_features(case_ids):
 
     for case_id in case_ids:
         # Match files like 1003_*.npy
-        pattern = os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}", f"{case_id}_*.npy")
+        pattern = os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}_single", f"{case_id}_*t2w.npy")
         matched_files = sorted(glob.glob(pattern))
 
         if matched_files:
@@ -108,6 +113,13 @@ def load_wsi_features(case_ids, csv_path="path/to/wsi_features.csv"):
             wsi_features.append(np.zeros(len(feature_cols), dtype=np.float32))  # fallback
 
     return np.stack(wsi_features)
+
+def load_radiomic_features(case_ids, csv_path):
+    df = pd.read_csv(csv_path)
+    df['Case_ID'] = df['Case_ID'].astype('str')
+    df = df[df['Case_ID'].isin(case_ids)].sort_values('Case_ID')
+    features = df.drop(columns=['Case_ID']).values
+    return features
 
 def load_folds():
     #fold_file = os.path.join(FOLDS_DIR, "folds.csv")

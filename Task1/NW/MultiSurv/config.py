@@ -18,12 +18,16 @@ APPLY_ROI = True           # True = extract features only from ROI; False = use 
 
 # === Data paths ===
 CLINICAL_CSV = "/home/u1970167/chimera/task1/clinical_data.csv"        # Clinical features CSV with Case_ID column
-EMBEDDER = 'titan' ## 'titan' or 'prism'
+EMBEDDER = 'prism' ## 'titan' or 'prism'
+MAG = 10
+PATCH_SIZE = 1024
 
 if EMBEDDER == 'titan':
-    WSI_FEATURES_CSV = "/home/u1970167/chimera/task1/pathology/features/titan/Task1_TITAN_1024_embeddings.csv"  # csv file with WSI-level feature vector (e.g. From CONCH+TITAN embeddings at 20x of 1024 patch size)
+    PATCH_SIZE = 512
+    WSI_FEATURES_CSV = f"/home/u1970167/chimera/task1/pathology/features/titan/Task1_titan_{MAG}x_{PATCH_SIZE}_embeddings.csv"  # csv file with WSI-level feature vector (e.g. From CONCH+TITAN embeddings at 20x of 1024 patch size)
 if EMBEDDER == 'prism':
-    WSI_FEATURES_CSV = "/home/u1970167/chimera/task1/pathology/features/prism/Task1_prism_224_embeddings.csv"
+    PATCH_SIZE = 224
+    WSI_FEATURES_CSV = f"/home/u1970167/chimera/task1/pathology/features/prism/Task1_prism_{MAG}x_{PATCH_SIZE}_embeddings.csv"
 
 FOLDS_CSV = f"/home/u1970167/chimera/task1/experiments/folds/task{TASK}_folds.csv"          # Directory for saving/loading fold CSVs
 OUTPUT_DIR = "/home/u1970167/chimera/task1/experiments/results/"       # Directory for saving results/models
@@ -50,8 +54,8 @@ MIXED_COLS = ["pT_stage"] ## pT_stage has values such 2, 2a, 2b, 3 etc. these ne
 
 # === Experiment settings ===
 USE_CLINICAL_FEATURES = True
-USE_MRI_FEATURES = False
-USE_WSI_FEATURES = False
+USE_MRI_FEATURES = True
+USE_WSI_FEATURES = True
 
 SURVIVAL_MODEL = 'deephit'  # Options: 'cox' or 'deephit'
 FUSION_TYPE = 'linear'  # Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params)
@@ -81,4 +85,4 @@ VERBOSE = True
 # === Inference ===
 USE_ENSEMBLE = True  # True means ensemble the results of the best models from the 5 folds. False means use the best of the 5 folds
 
-GLOBAL_DIR = f"{OUTPUT_DIR}clinic_{USE_CLINICAL_FEATURES}_mri_{USE_MRI_FEATURES}_wsi_{USE_WSI_FEATURES}_embedder_{EMBEDDER}_model_{SURVIVAL_MODEL}_fusion_{FUSION_TYPE}_scale_{SCALE_DATA}_epochs_{EPOCHS}/" ## main path for results
+GLOBAL_DIR = f"{OUTPUT_DIR}CLINICAL_{USE_CLINICAL_FEATURES}_MRI_{USE_MRI_FEATURES}_WSI_{USE_WSI_FEATURES}_MAGNIF_{MAG}_PATCH_SZ_{PATCH_SIZE}_EMBEDDER_{EMBEDDER}_MODEL_{SURVIVAL_MODEL}_FUSION_{FUSION_TYPE}_SCALE_{SCALE_DATA}_EPOCHS_{EPOCHS}/" ## main path for results

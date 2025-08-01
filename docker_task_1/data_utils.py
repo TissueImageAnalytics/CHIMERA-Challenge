@@ -147,6 +147,13 @@ def load_wsi_features(case_ids, csv_path="path/to/wsi_features.csv"):
 #         print(f"Created and saved folds to {FOLDS_CSV}")
 #     return folds
 
+def load_radiomic_features(case_ids, csv_path):
+    df = pd.read_csv(csv_path)
+    df['Case_ID'] = df['Case_ID'].astype('str')
+    df = df[df['Case_ID'].isin(case_ids)].sort_values('Case_ID')
+    features = df.drop(columns=['Case_ID']).values
+    return features
+
 def get_feature_dimensionalities(clinical_df):
     clinical_features = clinical_df.drop(columns=['Case_ID', 'duration', 'event'], errors='ignore')
     clinical_dim = clinical_features.shape[1]
