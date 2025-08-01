@@ -136,4 +136,5 @@ docker_task_1/hest_tissue_seg/
 docker_task_1/task1_submission_clinical/
 docker_task_1/Prism/
 docker_task_1/virchow/
+docker_task_1/virchow2/
 docker_task_1/biogpt/
