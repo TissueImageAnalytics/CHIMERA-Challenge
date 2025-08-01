@@ -323,7 +323,7 @@ class WSI:
 
         dataloader = tqdm(dataloader) if verbose else dataloader
 
-        for imgs, (xcoords, ycoords) in dataloader:
+        for imgs, (xcoords, ycoords) in tqdm(dataloader, desc="Segmenting patches"):
 
             imgs = imgs.to(device, dtype=precision)  # Move to device and match dtype
             with torch.autocast(device_type=device.split(":")[0], dtype=precision, enabled=(precision != torch.float32)):
@@ -647,7 +647,7 @@ class WSI:
         # dataloader = DataLoader(dataset, batch_size=batch_limit, num_workers=0, pin_memory=True)
 
         features = []
-        for imgs, _ in dataloader:
+        for imgs, _ in tqdm(dataloader, desc="Extracting patch features"):
             imgs = imgs.to(device)
             with torch.autocast(device_type='cuda', dtype=precision, enabled=(precision != torch.float32)):
                 batch_features = patch_encoder(imgs)  

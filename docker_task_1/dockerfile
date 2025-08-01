@@ -52,9 +52,9 @@ COPY --chown=user:user --chmod=0755 TRIDENT /opt/app/TRIDENT
 WORKDIR /opt/app/TRIDENT
 RUN pip install -e .
 # For Prism
-RUN pip install environs==11.0.0
-RUN pip install transformers==4.42.4
-RUN pip install sacremoses==0.1.1
+# RUN pip install environs==11.0.0
+# RUN pip install transformers==4.42.4
+# RUN pip install sacremoses==0.1.1
 
 # Ensures that Python output to stdout/stderr is not buffered: prevents missing information when terminating
 ENV PYTHONUNBUFFERED=1
@@ -70,28 +70,28 @@ WORKDIR /opt/app
 
 COPY --chown=user:user resources /opt/app/resources
 # Copy clincial model weights
-COPY --chown=user:user task1_submission_clinical /opt/app/resources/task1_submission_clinical
+# COPY --chown=user:user task1_submission_clinical /opt/app/resources/task1_submission_clinical
 
 # Copy code
 COPY --chown=user:user --chmod=0755 commands.sh /opt/app/
 # COPY --chown=user:user --chmod=0755 task_1_inference.py /opt/app/
-# COPY --chown=user:user --chmod=0755 task1_inference_template.py /opt/app/
+COPY --chown=user:user --chmod=0755 task1_inference_template.py /opt/app/
 COPY --chown=user:user --chmod=0755 config.py /opt/app/
 COPY --chown=user:user --chmod=0755 data_utils.py /opt/app/
 COPY --chown=user:user --chmod=0755 model.py /opt/app/
-COPY --chown=user:user --chmod=0755 clinical_only_inference.py /opt/app/
+# COPY --chown=user:user --chmod=0755 clinical_only_inference.py /opt/app/
 
 # Copy TITAN related weights
-# COPY --chown=user:user --chmod=0755 titan /home/user/.cache/huggingface/modules/transformers_modules/titan
-# COPY --chown=user:user --chmod=0755 resnet50-0676ba61.pth /home/user/.cache/torch/hub/checkpoints
-# COPY --chown=user:user --chmod=0755 hest_tissue_seg /opt/app/hest_tissue_seg
-
-# Copy PRISM related weights
-COPY --chown=user:user --chmod=0755 Prism /home/user/.cache/huggingface/modules/transformers_modules/prism
+COPY --chown=user:user --chmod=0755 titan /home/user/.cache/huggingface/modules/transformers_modules/titan
 COPY --chown=user:user --chmod=0755 resnet50-0676ba61.pth /home/user/.cache/torch/hub/checkpoints
 COPY --chown=user:user --chmod=0755 hest_tissue_seg /opt/app/hest_tissue_seg
-COPY --chown=user:user --chmod=0755 virchow /home/user/.cache/huggingface/modules/transformers_modules/virchow
-COPY --chown=user:user --chmod=0755 biogpt /opt/app/biogpt
+
+# Copy PRISM related weights
+# COPY --chown=user:user --chmod=0755 Prism /home/user/.cache/huggingface/modules/transformers_modules/prism
+# COPY --chown=user:user --chmod=0755 resnet50-0676ba61.pth /home/user/.cache/torch/hub/checkpoints
+# COPY --chown=user:user --chmod=0755 hest_tissue_seg /opt/app/hest_tissue_seg
+# COPY --chown=user:user --chmod=0755 virchow /home/user/.cache/huggingface/modules/transformers_modules/virchow
+# COPY --chown=user:user --chmod=0755 biogpt /opt/app/biogpt
 
 WORKDIR /opt/app/
 USER user

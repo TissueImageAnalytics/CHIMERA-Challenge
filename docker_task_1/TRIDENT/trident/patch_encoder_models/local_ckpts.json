@@ -7,7 +7,7 @@
     "resnet50": "",
     "gigapath": "",
     "virchow": "/home/user/.cache/huggingface/modules/transformers_modules/virchow/pytorch_model.bin",
-    "virchow2": "",
+    "virchow2": "/home/user/.cache/huggingface/modules/transformers_modules/virchow2/pytorch_model.bin",
     "hoptimus0": "",
     "hoptimus1": "",
     "phikon_v2": "",
