@@ -118,7 +118,7 @@ def extract_features_for_patient(patient_dir, model, device, scan_id):
         return dict(zip(modalities, modality_features))
 
 def extract_and_save_features(model, device):
-    os.makedirs(os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}"), exist_ok=True)
+    os.makedirs(os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}_single"), exist_ok=True)
     patient_dirs = [os.path.join(MRI_IMG_DIR, d) for d in os.listdir(MRI_IMG_DIR) if os.path.isdir(os.path.join(MRI_IMG_DIR, d))]
 
     for patient_dir in tqdm(patient_dirs):
@@ -140,7 +140,7 @@ def extract_and_save_features(model, device):
                 for t2_file in scans:
                     scan_id = t2_file.replace("_t2w.mha", "")
 
-                    if os.path.isfile(os.path.join(MRI_FEATURE_DIR, f'ROI_{APPLY_ROI}', f'{scan_id}.npy')):
+                    if os.path.isfile(os.path.join(MRI_FEATURE_DIR, f'ROI_{APPLY_ROI}_single', f'{scan_id}.npy')):
                         print(f"Skipping {scan_id} as feature file already exists at {os.path.join(MRI_FEATURE_DIR, f'ROI_{APPLY_ROI}', f'{scan_id}.npy')}")
                         continue
 
@@ -150,7 +150,7 @@ def extract_and_save_features(model, device):
                             np.save(os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}", f"{scan_id}.npy"), features)
                         else:
                             for mod, vec in features.items():
-                                np.save(os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}", f"{scan_id}_{mod}.npy"), vec)
+                                np.save(os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}_single", f"{scan_id}_{mod}.npy"), vec)
                     except Exception as e:
                         print(f"Failed to process {scan_id}: {e}")
         except Exception as e:
@@ -162,12 +162,13 @@ def extract_MRI_features():
 
     extract_and_save_features(model, device)
 
-# if __name__ == "__main__":
-#     root_data_dir = "/home/u1970167/chimera/task1/radiology/images/"
-#     feature_output_dir = "/home/u1970167/chimera/task1/radiology/features_ROI/"
-#     model_weights_path = "/home/u1970167/chimera/task1/radiology/resnet_50_23dataset.pth"
+if __name__ == "__main__":
+    root_data_dir = "/media/u1973415/data/u1973415/Chimera/data/task_1/radiology/images/"
+    # feature_output_dir = "/media/u1973415/data/u1973415/Chimera/output/NW_code/task1/radiology/features_ROI/"
+    model_weights_path = "/media/u1973415/data/u1973415/Chimera/github_repo/CHIMERA-Challenge/Task1/NW/MultiSurv/features/radiology/resnet_50_23dataset.pth"
 
-#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#     model = load_medicalnet_resnet50(model_weights_path, device)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = load_medicalnet_resnet50(model_weights_path, device)
 
-#     extract_and_save_features(root_data_dir, feature_output_dir, model, device)
+    # extract_and_save_features(root_data_dir, feature_output_dir, model, device)
+    extract_and_save_features(model, device)

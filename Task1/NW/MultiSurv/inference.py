@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import torch
 from config import *
-from utils.data_utils import load_clinical, load_mri_features, load_wsi_features, get_feature_dimensionalities, convert_mixed_column_to_numeric
+from utils.data_utils import load_clinical, load_mri_features, load_wsi_features, load_radiomic_features, get_feature_dimensionalities, convert_mixed_column_to_numeric
 from models.model import MultimodalSurvivalModel
 from sksurv.metrics import concordance_index_censored
 from sklearn.preprocessing import StandardScaler
@@ -107,7 +107,7 @@ def inference(test_case_ids):
 
     # Get input arrays
     test_clinical = clinical_df[clinical_df['Case_ID'].isin(test_case_ids)].sort_values('Case_ID')
-    
+
     #### for single case from clincal json @@@@@@@@@@@@@@@@@@@@@@@@@@
     if 2 == 3:
         test_clin_array = test_clinical.drop(columns=['Case_ID', 'duration', 'event']).values if USE_CLINICAL_FEATURES else None
@@ -128,11 +128,24 @@ def inference(test_case_ids):
     test_mri_array = load_mri_features(test_case_ids) if USE_MRI_FEATURES else None
     test_wsi_array = load_wsi_features(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
 
+    # Append radiomic features if enabled
+    if USE_RADIOMIC_FEATURES:
+        test_radiomic_array = load_radiomic_features(test_case_ids, csv_path=RADIOMIC_CSV)
+        if test_clin_array is not None:
+            test_clin_array = np.concatenate([test_clin_array, test_radiomic_array], axis=1)
+        else:
+            test_clin_array = test_radiomic_array
+
+    
     # Feature dimensions
     c_dim = clinical_dim if USE_CLINICAL_FEATURES else 0
     m_dim = M_FEATURE_DIM if USE_MRI_FEATURES else 0
     w_dim = W_FEATURE_DIM if USE_WSI_FEATURES else 0
+    r_dim = R_FEATURE_DIM if USE_RADIOMIC_FEATURES else 0
 
+    if r_dim > 0:
+        c_dim += r_dim
+    
     # Prepare model template
     model = MultimodalSurvivalModel(
         clin_dim=c_dim,
@@ -228,7 +241,7 @@ def inference(test_case_ids):
 
 if __name__ == "__main__":
     os.makedirs(GLOBAL_DIR, exist_ok=True)
-    ## Do inference on all the training set using an ensemble or the best of the 5 folds
+    ## Do inference on all the training set using an ensemble of the best of the 5 folds
     print("\n=== Step: Inference on entire training set ===")
     
     clinical_df = load_clinical()
