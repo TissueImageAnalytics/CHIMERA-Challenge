@@ -47,5 +47,5 @@ python run_batch_of_slides.py \
 cd /opt/app
 
 echo running task1_inference_clinical_mri_wsi_radiomic.py
-python -u task1_inference_clinical_mri_wsi_radiomic
+python -u task1_inference_clinical_mri_wsi_radiomic.py
 echo finished

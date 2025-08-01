@@ -72,6 +72,9 @@ COPY --chown=user:user resources /opt/app/resources
 # Copy clincial model weights
 # COPY --chown=user:user task1_submission_clinical /opt/app/resources/task1_submission_clinical
 
+# Copy mri and survival model weights
+COPY --chown=user:user weights_scalers_folder /opt/app/resources/weights_scalers_folder
+
 # Copy code
 COPY --chown=user:user --chmod=0755 commands.sh /opt/app/
 # COPY --chown=user:user --chmod=0755 task_1_inference.py /opt/app/
@@ -79,6 +82,7 @@ COPY --chown=user:user --chmod=0755 task1_inference_clinical_mri_wsi_radiomic.py
 COPY --chown=user:user --chmod=0755 config.py /opt/app/
 COPY --chown=user:user --chmod=0755 data_utils.py /opt/app/
 COPY --chown=user:user --chmod=0755 model.py /opt/app/
+COPY --chown=user:user --chmod=0755 resnet.py /opt/app/
 # COPY --chown=user:user --chmod=0755 clinical_only_inference.py /opt/app/
 
 # Copy TITAN related weights
