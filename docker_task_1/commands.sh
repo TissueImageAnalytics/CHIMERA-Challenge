@@ -25,7 +25,7 @@ python run_batch_of_slides.py \
     --patch_encoder_ckpt /home/user/.cache/huggingface/modules/transformers_modules/titan/conch_v1_5_pytorch_model.bin \
     --mag 10 \
     --patch_size 1024 \
-    --batch_size 64 
+    --batch_size 32 
 
 # echo "Running PRISM"
 # cd /opt/app/TRIDENT

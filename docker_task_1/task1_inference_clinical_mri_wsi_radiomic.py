@@ -169,7 +169,10 @@ def extract_clinical_feats():
 
     print("Clinical features extracted.")
 
-    return df.values.astype(np.float32)
+    clinical_feats = df.values.astype(np.float32)
+    print(clinical_feats[0, 0:10])  # Print first 10 features for debugging
+
+    return clinical_feats
 
 
 def extract_MRI_feats():
@@ -215,6 +218,8 @@ def extract_MRI_feats():
 
     print("MRI features extracted.")
 
+    print(feat[0, 0:10])  # Print first 10 features for debugging
+
     return feat
 
 
@@ -246,6 +251,8 @@ def extract_radiomic_feats():
     # Convert to [1,1] shape for consistency
     if total_volume.ndim == 1:
         total_volume = total_volume.reshape(1, 1)
+
+    print(total_volume[0, 0:1])  # Print first feature for debugging
 
     return total_volume
 
@@ -296,6 +303,7 @@ def extract_WSI_feats():
 
         if features.ndim == 1:
             features = features.reshape(1, -1)
+        print(features[0, 0:10])  # Print first 10 features for debugging
         return features
 
     except Exception as e:
