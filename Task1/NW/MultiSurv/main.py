@@ -4,9 +4,9 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 from config import *
-from utils.data_utils import load_clinical, load_mri_features, load_wsi_features, load_radiomic_features, create_folds, get_feature_dimensionalities, load_folds
+from utils.data_utils import load_clinical, load_mri_features, load_wsi_features, load_wsi_features_mult, create_folds, get_feature_dimensionalities, load_folds
 from train_eval import SurvivalDataset, train_one_epoch, evaluate, save_model
-from models.model import MultimodalSurvivalModel #, infer_time
+from models.model import MultimodalSurvivalModel
 import torch.optim as optim
 from sampler import EventBalancedBatchSampler  # Import custom sampler
 import matplotlib.pyplot as plt
@@ -14,6 +14,7 @@ from mri_feature_extraction import extract_MRI_features
 from sksurv.metrics import concordance_index_censored
 from sklearn.preprocessing import StandardScaler
 import joblib
+import json
 
 def plot_learning_curve(train_losses, val_cindices, fold_idx):
     plt.figure(figsize=(10, 5))
@@ -83,25 +84,16 @@ def main():
             train_mri_array = load_mri_features(train_clinical['Case_ID'].tolist()) if USE_MRI_FEATURES else None
             val_mri_array = load_mri_features(val_clinical['Case_ID'].tolist()) if USE_MRI_FEATURES else None
 
-            train_wsi_array = load_wsi_features(train_clinical['Case_ID'].tolist(), csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
-            val_wsi_array   = load_wsi_features(val_clinical['Case_ID'].tolist(), csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
-
-            # === Append radiomic features if enabled ===
-            if USE_RADIOMIC_FEATURES:
-                train_radiomic_array = load_radiomic_features(train_clinical['Case_ID'].tolist(), csv_path=RADIOMIC_CSV)
-                val_radiomic_array = load_radiomic_features(val_clinical['Case_ID'].tolist(), csv_path=RADIOMIC_CSV)
-                
-                if train_clin_array is not None:
-                    train_clin_array = np.concatenate([train_clin_array, train_radiomic_array], axis=1)
-                    val_clin_array = np.concatenate([val_clin_array, val_radiomic_array], axis=1)
-                else:
-                    train_clin_array = train_radiomic_array
-                    val_clin_array = val_radiomic_array
-
+            if AGGREG_CASE_WSI:
+                train_wsi_array = load_wsi_features_mult(train_clinical['Case_ID'].tolist(), csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
+                val_wsi_array   = load_wsi_features_mult(val_clinical['Case_ID'].tolist(), csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
+            else:
+                train_wsi_array = load_wsi_features(train_clinical['Case_ID'].tolist(), csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
+                val_wsi_array   = load_wsi_features(val_clinical['Case_ID'].tolist(), csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
 
             # === Optional Scaling ===
             if SCALE_DATA:
-                if USE_CLINICAL_FEATURES or USE_RADIOMIC_FEATURES:
+                if USE_CLINICAL_FEATURES:
                     train_clin_array, val_clin_array = maybe_scale("clinical", train_clin_array, val_clin_array, fit=True, fold=fold_idx)
                 if USE_MRI_FEATURES:
                     train_mri_array, val_mri_array = maybe_scale("mri", train_mri_array, val_mri_array, fit=True, fold=fold_idx)
@@ -123,10 +115,6 @@ def main():
             c_dim = clinical_dim if USE_CLINICAL_FEATURES else 0
             m_dim = M_FEATURE_DIM if USE_MRI_FEATURES else 0
             w_dim = W_FEATURE_DIM if USE_WSI_FEATURES else 0
-            r_dim = R_FEATURE_DIM if USE_RADIOMIC_FEATURES else 0
-            
-            if r_dim > 0:
-                c_dim += r_dim
 
             model = MultimodalSurvivalModel(c_dim, m_dim, w_dim,
                                             fusion_type=FUSION_TYPE,
@@ -160,7 +148,7 @@ def main():
                 if val_cindex > best_cindex:
                     best_cindex = val_cindex
                     best_epoch = epoch
-                    save_model(model, fold_idx)
+                    save_model(model, fold_idx, run_num)
                     wait = 0
                 else:
                     wait += 1
@@ -180,7 +168,7 @@ def main():
         print(f"\nAverage C-index across all folds: {avg_cindex} ± {std_cindex}")
 
         # Save fold-wise and summary C-index results to CSV
-        results_path = os.path.join(GLOBAL_DIR, "fold_cindices.csv")
+        results_path = os.path.join(GLOBAL_DIR, f"fold_cindices_run{run_num}.csv")
 
         # Build dataframe
         fold_rows = [{"Fold": f"Fold {i+1}", "C-Index": c} for i, c in enumerate(val_cindices)]
@@ -193,13 +181,29 @@ def main():
         if VERBOSE:
             print(f"\nSaved fold-wise C-indices to {results_path}")
         
-        run_cindices.append(avg_cindex)
-        run_stds.append(std_cindex)
-    
+        run_cindices.append((run_num, avg_cindex, val_cindices))
+
     print(f"\n Run: {run_num}=======Modalities===========")
-    print(f"Clinical: {USE_CLINICAL_FEATURES}, MRI: {USE_MRI_FEATURES}, WSI: {USE_WSI_FEATURES}, Radiomic: {USE_RADIOMIC_FEATURES}")
-    print(f"\nRun Average C-index: {round(np.mean(run_cindices), 3)}, C-indices: {run_cindices}")
-    print(f"\nRun C-index Stds {run_stds}")
+    print(f"Clinical: {USE_CLINICAL_FEATURES}, MRI: {USE_MRI_FEATURES}, WSI: {USE_WSI_FEATURES}")
+    avg_cindices_only = [c[1] for c in run_cindices]  # extract just the average C-index per run
+    print(f"\nRun Average C-index: {round(np.mean(avg_cindices_only), 3)}, C-indices: {avg_cindices_only}")
+
+    # Identify best run based on average C-index
+    best_run = max(run_cindices, key=lambda x: x[1])  # (run_num, avg_cindex, [fold_cindices])
+    best_run_num = best_run[0]
+    best_run_cindices = best_run[2]
+
+    # Save best run info
+    best_run_info = {
+        "best_run": best_run_num,
+        "best_run_avg_cindex": best_run[1],
+        "fold_cindices": best_run_cindices
+    }
+    with open(os.path.join(GLOBAL_DIR, "best_run.json"), "w") as f:
+        json.dump(best_run_info, f, indent=2)
+
+    print(f"\n Best Run: {best_run_num} | Avg C-index: {best_run[1]:.4f}")
+
 
 if __name__ == "__main__":
     os.makedirs(GLOBAL_DIR, exist_ok=True)
@@ -209,5 +213,5 @@ if __name__ == "__main__":
     #extract_MRI_features()
 
     ## Step 2: Do 5-folds cross-valiation using existing stratified random fold
-    print(f"\n=== Step 2: {NUM_FOLDS}-folds cross ===")
+    #print(f"\n=== Step 2: {NUM_FOLDS}-folds cross ===")
     main()

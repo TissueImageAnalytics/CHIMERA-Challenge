@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import torch
 from config import *
-from utils.data_utils import load_clinical, load_mri_features, load_wsi_features, load_radiomic_features, get_feature_dimensionalities, convert_mixed_column_to_numeric
+from utils.data_utils import load_clinical, load_mri_features, load_wsi_features, load_wsi_features_mult, get_feature_dimensionalities, convert_mixed_column_to_numeric
 from models.model import MultimodalSurvivalModel
 from sksurv.metrics import concordance_index_censored
 from sklearn.preprocessing import StandardScaler
@@ -35,8 +35,7 @@ def load_clinical_vectors_from_jsons(case_ids):
     applies preprocessing (including mixed-column parsing),
     and returns a NumPy array of shape (num_cases, num_features).
     """
-    CLINICAL_JSON_DIR = '/home/u1970167/chimera/task1/clinical_data_v2/'
-
+    
     all_vectors = []
     for cid in sorted(case_ids):
         json_path = os.path.join(CLINICAL_JSON_DIR, f"{cid}.json")
@@ -107,45 +106,48 @@ def inference(test_case_ids):
 
     # Get input arrays
     test_clinical = clinical_df[clinical_df['Case_ID'].isin(test_case_ids)].sort_values('Case_ID')
-
+    
     #### for single case from clincal json @@@@@@@@@@@@@@@@@@@@@@@@@@
-    if 2 == 3:
+    if INFER_SINGLE:
         test_clin_array = test_clinical.drop(columns=['Case_ID', 'duration', 'event']).values if USE_CLINICAL_FEATURES else None
-        input_chimera_clinical_data_of_prostate_cancer_patients = f"/home/u1970167/chimera/task1/clinical_data_v2/{test_case_ids[0]}.json"
+        test_case = os.listdir(CLINICAL_JSON_DIR)[0]
+        input_chimera_clinical_data_of_prostate_cancer_patients = f"{CLINICAL_JSON_DIR}/{test_case}"
         with open(input_chimera_clinical_data_of_prostate_cancer_patients, "r") as f:
            jsdata = json.load(f)
 
         test_clin_array = extract_clinical_vector(jsdata)
-    else:
-        test_clin_array = test_clinical.drop(columns=['Case_ID', 'duration', 'event']).values if USE_CLINICAL_FEATURES else None
+        
+        ## ToDo: change the MRI and WSI feature loading to challenge format
+        ## Temp work around: change the test_case_ids as in the next line
+        test_case_ids = [test_case.split('.json')[0]]
 
-    ## ## testing multiple cases from json so that confirm the c-index works
-    if 2 == 3:
-        test_clin_array = load_clinical_vectors_from_jsons(test_case_ids) 
-    else:
-        test_clin_array = test_clinical.drop(columns=['Case_ID', 'duration', 'event']).values if USE_CLINICAL_FEATURES else None
+        test_mri_array = load_mri_features(test_case_ids) if USE_MRI_FEATURES else None
 
-    test_mri_array = load_mri_features(test_case_ids) if USE_MRI_FEATURES else None
-    test_wsi_array = load_wsi_features(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
-
-    # Append radiomic features if enabled
-    if USE_RADIOMIC_FEATURES:
-        test_radiomic_array = load_radiomic_features(test_case_ids, csv_path=RADIOMIC_CSV)
-        if test_clin_array is not None:
-            test_clin_array = np.concatenate([test_clin_array, test_radiomic_array], axis=1)
+        if AGGREG_CASE_WSI:
+            test_wsi_array = load_wsi_features_mult(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
         else:
-            test_clin_array = test_radiomic_array
+            test_wsi_array = load_wsi_features(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
+    else:
+        test_clin_array = test_clinical.drop(columns=['Case_ID', 'duration', 'event']).values if USE_CLINICAL_FEATURES else None
 
-    
+        ## ## testing multiple cases from json so that confirm the c-index works
+        if INFER_LOCAL:
+            test_clin_array = test_clinical.drop(columns=['Case_ID', 'duration', 'event']).values if USE_CLINICAL_FEATURES else None
+        else:
+            test_clin_array = load_clinical_vectors_from_jsons(test_case_ids) 
+
+        test_mri_array = load_mri_features(test_case_ids) if USE_MRI_FEATURES else None
+
+        if AGGREG_CASE_WSI:
+            test_wsi_array = load_wsi_features_mult(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
+        else:
+            test_wsi_array = load_wsi_features(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
+
     # Feature dimensions
     c_dim = clinical_dim if USE_CLINICAL_FEATURES else 0
     m_dim = M_FEATURE_DIM if USE_MRI_FEATURES else 0
     w_dim = W_FEATURE_DIM if USE_WSI_FEATURES else 0
-    r_dim = R_FEATURE_DIM if USE_RADIOMIC_FEATURES else 0
 
-    if r_dim > 0:
-        c_dim += r_dim
-    
     # Prepare model template
     model = MultimodalSurvivalModel(
         clin_dim=c_dim,
@@ -158,11 +160,21 @@ def inference(test_case_ids):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
+    best_run_path = os.path.join(GLOBAL_DIR, "best_run.json")
+    if not os.path.exists(best_run_path):
+        raise FileNotFoundError(f"Missing best_run.json. Please train models first.")
+    with open(best_run_path, "r") as f:
+        best_run_info = json.load(f)
+
+    best_run = best_run_info["best_run"]
+    fold_cindices = best_run_info["fold_cindices"]
+
     if USE_ENSEMBLE:
         pmf_all_folds = []
 
         for fold_idx in range(NUM_FOLDS):
-            model_path = os.path.join(GLOBAL_DIR, f"best_model_fold{fold_idx}.pt")
+            model_path = os.path.join(GLOBAL_DIR, f"best_model_run{best_run}_fold{fold_idx}.pt")
+
             if not os.path.exists(model_path):
                 print(f"[Warning] Model missing for fold {fold_idx}: {model_path}")
                 continue
@@ -187,24 +199,26 @@ def inference(test_case_ids):
 
             with torch.no_grad():
                 out = model(clinical_feat=clin_tensor, mri_feat=mri_tensor, wsi_feat=wsi_tensor)
-                pmf_all_folds.append(out.cpu().numpy())
+                pmf_all_folds.append(out[0].cpu().numpy())
 
         if not pmf_all_folds:
             raise RuntimeError("No models loaded for ensemble inference.")
 
         avg_pmf = np.mean(pmf_all_folds, axis=0)
     else:
-        cindex_path = os.path.join(GLOBAL_DIR, "fold_cindices.csv")
-        if not os.path.exists(cindex_path):
-            raise FileNotFoundError(f"Missing file: {cindex_path}")
+        # Load best run info
+        best_run_path = os.path.join(GLOBAL_DIR, "best_run.json")
+        if not os.path.exists(best_run_path):
+            raise FileNotFoundError(f"Missing best_run.json. Please train models first.")
+        with open(best_run_path, "r") as f:
+            best_run_info = json.load(f)
 
-        df = pd.read_csv(cindex_path)
-        df = df[df["Fold"].str.contains("Fold", na=False)]
-        best_idx = df["C-Index"].astype(float).idxmax()
-        best_fold = int(df.iloc[best_idx]["Fold"].split()[1])
+        best_run = best_run_info["best_run"]
+        fold_cindices = best_run_info["fold_cindices"]
+        best_fold = int(np.argmax(fold_cindices))  # index of best fold
 
-        model_path = os.path.join(GLOBAL_DIR, f"best_model_fold{best_fold-1}.pt")
-        print(f"Using best single model: Fold {best_fold} → {model_path}")
+        model_path = os.path.join(GLOBAL_DIR, f"best_model_run{best_run}_fold{best_fold}.pt")
+        print(f"Using best single model: Run {best_run}, Fold {best_fold}, {model_path}")
 
         test_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, fold=best_fold-1) if USE_CLINICAL_FEATURES else (None, None)
         test_mri_array, _ = maybe_scale("mri", test_mri_array, test_mri_array, fit=False, fold=best_fold-1) if USE_MRI_FEATURES else (None, None)
@@ -225,13 +239,14 @@ def inference(test_case_ids):
         model.eval()
 
         with torch.no_grad():
-            avg_pmf = model(clinical_feat=clin_tensor, mri_feat=mri_tensor, wsi_feat=wsi_tensor).cpu().numpy()
+            avg_pmf = model(clinical_feat=clin_tensor, mri_feat=mri_tensor, wsi_feat=wsi_tensor)[0].cpu().numpy()
 
     ## to test with a single json clinical file
-    # time_bins = np.arange(TIME_BINS)
-    # score = float(np.sum(avg_pmf * time_bins))
-    # print('score: ', score)
-    # return score
+    if INFER_SINGLE:
+        time_bins = np.arange(TIME_BINS)
+        score = float(np.sum(avg_pmf * time_bins))
+        print(f"Score for case {test_case}:  {score}")
+        exit()
 
     ##Expected time = sum_t p(t) * t
     time_bins = np.arange(TIME_BINS)
@@ -241,7 +256,7 @@ def inference(test_case_ids):
 
 if __name__ == "__main__":
     os.makedirs(GLOBAL_DIR, exist_ok=True)
-    ## Do inference on all the training set using an ensemble of the best of the 5 folds
+    ## Do inference on all the training set using an ensemble or the best of the 5 folds
     print("\n=== Step: Inference on entire training set ===")
     
     clinical_df = load_clinical()

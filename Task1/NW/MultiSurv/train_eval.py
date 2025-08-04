@@ -176,6 +176,44 @@ def deephit_loss_uncensored(pred, durations, events, alpha=0.5, time_bins=TIME_B
     total_loss = (1 - alpha) * likelihood_loss + alpha * rank_loss
     return total_loss
 
+def multimodal_loss(predictions, durations, events, survival_model="cox"):
+    """
+    predictions: model output
+    durations: observed durations (time to event or censoring)
+    events: 1 if event occurred, 0 if censored
+    """
+    if survival_model == "cox":
+        # Cox partial likelihood loss (negative)
+        risk = predictions.view(-1)
+        # Sort by descending time
+        order = torch.argsort(durations, descending=True)
+        risk_sorted = risk[order]
+        events_sorted = events[order]
+
+        # Compute log partial likelihood
+        exp_risk = torch.exp(risk_sorted)
+        log_cum_sum = torch.log(torch.cumsum(exp_risk, dim=0))
+        log_likelihood = risk_sorted - log_cum_sum
+        neg_partial_ll = -torch.sum(log_likelihood * events_sorted) / torch.sum(events_sorted)
+        return neg_partial_ll
+
+    elif survival_model == "nnet_survival":
+        # Assume predictions are raw logits for time_bins
+        # Use negative log-likelihood of survival probability
+        probs = torch.sigmoid(predictions)
+        eps = 1e-8
+        loss = 0.0
+        for i in range(len(durations)):
+            t = int(durations[i].item())
+            e = events[i].item()
+            if e == 1:
+                loss -= torch.log(probs[i, t] + eps)
+            else:
+                loss -= torch.log(1 - probs[i, t] + eps)
+        return loss / len(durations)
+    else:
+        raise ValueError(f"Unsupported survival model: {survival_model}")
+
 # ===== Inference for expected event time =====
 def infer_time(model, clin, mri):
     with torch.no_grad():
@@ -202,12 +240,14 @@ def train_one_epoch(model, dataloader, optimizer, survival_model, device):
         optimizer.zero_grad()
         outputs = model(clinical_feat=clin, mri_feat=mri, wsi_feat=wsi)
 
+        main_pred = outputs[0]
+
         if survival_model == 'cox':
-            loss = cox_loss(outputs, duration, event)
+            loss = cox_loss(main_pred, duration, event)
         elif survival_model == 'deephit' and DEEPHIT_LOSS == 'uncensored':
-            loss = deephit_loss_uncensored(outputs, duration, event, debug=True)
+            loss = deephit_loss_uncensored(main_pred, duration, event, debug=True)
         elif survival_model == 'deephit' and DEEPHIT_LOSS == 'censored':
-            loss = deephit_loss_censored(outputs, duration, event, debug=True)
+            loss = deephit_loss_censored(main_pred, duration, event, debug=True)
         else:
             raise ValueError(f"Unknown survival model: {survival_model}")
 
@@ -239,20 +279,22 @@ def evaluate(model, dataloader, survival_model, device):
             duration = duration.to(device)
             event = event.to(device)
 
-            output = model(clinical_feat=clin, mri_feat=mri, wsi_feat=wsi) 
+            outputs = model(clinical_feat=clin, mri_feat=mri, wsi_feat=wsi)
+            main_pred = outputs[0]
 
             if survival_model == 'cox':
-                preds = output.squeeze()
+                preds = main_pred.squeeze()
             elif survival_model == 'deephit':
-                time_bins = output.shape[1]
+                time_bins = main_pred.shape[1]
                 time_range = torch.arange(time_bins).float().to(device)
-                preds = (output * time_range).sum(dim=1)
+                preds = (main_pred * time_range).sum(dim=1)
             else:
                 raise ValueError(f"Unknown survival model: {survival_model}")
 
             all_preds.append(preds.cpu())
             all_events.append(event.cpu())
             all_durations.append(duration.cpu())
+
 
     all_preds = torch.cat(all_preds).numpy()
     all_durations = torch.cat(all_durations).numpy()
@@ -266,16 +308,16 @@ def evaluate(model, dataloader, survival_model, device):
     return c_index
 
 # ===== Save Model =====
-def save_model(model, fold_idx):
+def save_model(model, fold_idx, run_num):
     os.makedirs(GLOBAL_DIR, exist_ok=True)
-    model_path = os.path.join(GLOBAL_DIR, f"best_model_fold{fold_idx}.pt")
+    model_path = os.path.join(GLOBAL_DIR, f"best_model_run{run_num}_fold{fold_idx}.pt")
     torch.save(model.state_dict(), model_path)
     if VERBOSE:
         print(f"Saved best model for fold {fold_idx} at {model_path}")
     return model_path
 
-def load_model(model_class, fold_idx):
-    model_path = os.path.join(GLOBAL_DIR, f"best_model_fold{fold_idx}.pt")
+def load_model(model_class, fold_idx, run_num):
+    model_path = os.path.join(GLOBAL_DIR, f"best_model_run{run_num}_fold{fold_idx}.pt")
     model = model_class()
     model.load_state_dict(torch.load(model_path))
     model.eval()

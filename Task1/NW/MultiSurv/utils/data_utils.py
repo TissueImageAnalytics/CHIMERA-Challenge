@@ -25,11 +25,6 @@ def convert_mixed_column_to_numeric(series):
 
 def load_clinical():
     clinical_df = pd.read_csv(CLINICAL_CSV)
-    # clinical_df.columns = (
-    #     clinical_df.columns
-    #     .str.replace(r'\+AF8-', '_', regex=True)
-    #     .str.replace(r'\+AC0-', '-', regex=True)
-    # ) # added by AS for colume on 30/07/2025
     clinical_df['Case_ID'] = clinical_df['Case_ID'].astype(str)
     clinical_df = clinical_df.dropna(subset=[EVENT_COLUMN, TIME_COLUMN])
 
@@ -50,35 +45,70 @@ def load_clinical():
     clinical_df = clinical_df.reset_index(drop=True)
     return clinical_df
 
+import glob
+
+import glob
+import os
+import numpy as np
+
 def load_mri_features(case_ids):
     feats = []
     missing = []
 
-    for case_id in case_ids:
-        # Match files like 1003_*.npy
-        pattern = os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}_single", f"{case_id}_*t2w.npy")
-        matched_files = sorted(glob.glob(pattern))
+    mod_str = "_".join(MODALITIES)
+    feature_dir = os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}_{mod_str}")
 
-        if matched_files:
-            # Just pick the first match
-            try:
-                feat = np.load(matched_files[0])
-                feats.append(feat)
-            except Exception as e:
-                print(f"Error loading {matched_files[0]}: {e}")
-                missing.append(case_id)
-                feats.append(np.zeros((M_FEATURE_DIM,), dtype=np.float32))
-        else:
-            # No file found for this case
+    for case_id in case_ids:
+        try:
+            if COMBINE_MODALITIES:
+                # Match files like case1_001.npy, case1_abc.npy, etc.
+                pattern = os.path.join(feature_dir, f"{case_id}_*.npy")
+                matched_files = sorted(glob.glob(pattern))
+                if matched_files:
+                    feat = np.load(matched_files[0])  # pick the first match
+                else:
+                    raise FileNotFoundError(f"No combined MRI feature found for {case_id}")
+            else:
+                # Look for per-modality files like case1_001_t2w.npy, case1_xyz_adc.npy, etc.
+                # Need to match on all modalities for the same scan
+                pattern = os.path.join(feature_dir, f"{case_id}_*_{MODALITIES[0]}.npy")
+                base_paths = sorted(glob.glob(pattern))
+
+                selected_feat = None
+                for base_path in base_paths:
+                    base_prefix = base_path.rsplit("_", 1)[0]  # remove "_t2w.npy"
+                    try:
+                        modality_feats = []
+                        for mod in MODALITIES:
+                            mod_file = f"{base_prefix}_{mod}.npy"
+                            if os.path.isfile(mod_file):
+                                modality_feats.append(np.load(mod_file))
+                            else:
+                                raise FileNotFoundError
+                        selected_feat = np.concatenate(modality_feats)
+                        break  # success
+                    except FileNotFoundError:
+                        continue
+
+                if selected_feat is not None:
+                    feat = selected_feat
+                else:
+                    raise FileNotFoundError(f"No complete modality set for {case_id}")
+
+            feats.append(feat)
+
+        except Exception as e:
+            print(f" Error loading MRI features for {case_id}: {e}")
             missing.append(case_id)
-            feats.append(np.zeros((M_FEATURE_DIM,), dtype=np.float32))
+            feats.append(np.zeros((M_FEATURE_DIM,), dtype=np.float32))  # fallback
 
     if missing and VERBOSE:
-        print(f"⚠️ Warning: Missing MRI features for cases: {missing}")
+        print(f" Missing MRI features for {len(missing)} cases: {missing}")
 
     return np.stack(feats)
 
-def load_wsi_features(case_ids, csv_path="path/to/wsi_features.csv"):
+
+def load_wsi_features_mult(case_ids, csv_path="path/to/wsi_features.csv"):
     """
     Aggregates WSI features per case and returns aligned numpy array.
     
@@ -114,12 +144,42 @@ def load_wsi_features(case_ids, csv_path="path/to/wsi_features.csv"):
 
     return np.stack(wsi_features)
 
-def load_radiomic_features(case_ids, csv_path):
+def load_wsi_features(case_ids, csv_path="path/to/wsi_features.csv"):
+    """
+    Select a single WSI feature per case using Slide_ID naming convention.
+    Picks the WSI with the lowest numeric suffix (e.g., Case001_001 over Case001_002).
+
+    Args:
+        case_ids (list of str): List of Case_IDs to extract features for.
+        csv_path (str): Path to the WSI features CSV file.
+
+    Returns:
+        np.ndarray: Array of shape [len(case_ids), feature_dim]
+    """
     df = pd.read_csv(csv_path)
-    df['Case_ID'] = df['Case_ID'].astype('str')
-    df = df[df['Case_ID'].isin(case_ids)].sort_values('Case_ID')
-    features = df.drop(columns=['Case_ID']).values
-    return features
+    df['Slide_ID'] = df['Slide_ID'].astype(str)
+    df['Case_ID'] = df['Slide_ID'].apply(lambda x: x.split('_')[0])
+
+    # Extract slide number (e.g., Case001_003 → 3)
+    df['Slide_Num'] = df['Slide_ID'].apply(
+        lambda x: int(x.split('_')[-1].split('.')[0]) if '_' in x else 0
+    )
+
+    feature_cols = [col for col in df.columns if col.startswith("dim_")]
+
+    selected_features = []
+    for cid in case_ids:
+        case_df = df[df['Case_ID'] == cid]
+        if case_df.empty:
+            print(f"[WARNING] No WSI found for case: {cid}")
+            selected_features.append(np.zeros(len(feature_cols), dtype=np.float32))
+            continue
+
+        # Pick the slide with the lowest Slide_Num
+        selected_row = case_df.sort_values("Slide_Num").iloc[0]
+        selected_features.append(selected_row[feature_cols].values.astype(np.float32))
+
+    return np.stack(selected_features)
 
 def load_folds():
     #fold_file = os.path.join(FOLDS_DIR, "folds.csv")

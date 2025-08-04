@@ -15,10 +15,12 @@ MRI_IMG_DIR = "/home/u1970167/chimera/task1/radiology/images/"
 MRI_FEATURE_DIR = "/home/u1970167/chimera/task1/radiology/features/" # Directory to save the MRI features (as .npy files) to
 COMBINE_MODALITIES = True  # True = average features; False = keep separate per modality (t2w, adc, hbv)
 APPLY_ROI = True           # True = extract features only from ROI; False = use whole image
+MODALITIES = ['t2w'] ## to use t2w only: ['t2w'] , to use all: ['t2w', 'adc', 'hbv'] 
 
 # === Data paths ===
 CLINICAL_CSV = "/home/u1970167/chimera/task1/clinical_data.csv"        # Clinical features CSV with Case_ID column
-EMBEDDER = 'prism' ## 'titan' or 'prism'
+CLINICAL_JSON_DIR = '/home/u1970167/chimera/task1/clinical_data_v2/' ## path to the clincal json files for each case. this is needed when doing inference from clinical features from json files instead of a single csv file
+EMBEDDER = 'titan' ## 'titan' or 'prism'
 MAG = 10
 PATCH_SIZE = 1024
 
@@ -26,7 +28,7 @@ if EMBEDDER == 'titan':
     PATCH_SIZE = 512
     WSI_FEATURES_CSV = f"/home/u1970167/chimera/task1/pathology/features/titan/Task1_titan_{MAG}x_{PATCH_SIZE}_embeddings.csv"  # csv file with WSI-level feature vector (e.g. From CONCH+TITAN embeddings at 20x of 1024 patch size)
 if EMBEDDER == 'prism':
-    PATCH_SIZE = 224
+    PATCH_SIZE = 896
     WSI_FEATURES_CSV = f"/home/u1970167/chimera/task1/pathology/features/prism/Task1_prism_{MAG}x_{PATCH_SIZE}_embeddings.csv"
 
 FOLDS_CSV = f"/home/u1970167/chimera/task1/experiments/folds/task{TASK}_folds.csv"          # Directory for saving/loading fold CSVs
@@ -54,21 +56,27 @@ MIXED_COLS = ["pT_stage"] ## pT_stage has values such 2, 2a, 2b, 3 etc. these ne
 
 # === Experiment settings ===
 USE_CLINICAL_FEATURES = True
-USE_MRI_FEATURES = True
+USE_MRI_FEATURES = False
 USE_WSI_FEATURES = True
 
 SURVIVAL_MODEL = 'deephit'  # Options: 'cox' or 'deephit'
-FUSION_TYPE = 'linear'  # Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params)
+# Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params) or 
+# 'gated_cross' (sample-specific gating + cross-modal attention using Clinical as query) 
+FUSION_TYPE = 'linear'  
 DEEPHIT_LOSS = 'uncensored' # 'censored' or 'uncensored'. 'censored' has a extra term for accounting for censored data whereas 'uncensored' only considers uncensored cases
 TIME_BINS = 30  # Only for deephit
 NUM_FOLDS = 5
 SEED = 42
+HIDDEN_DIM = 128  # or 128, tune as needed
+
 
 # === Feature dimensions ===
 if EMBEDDER == 'prism':
     W_FEATURE_DIM = 1280  # deep features from WSIs. Titan: 768, Prism: 1280
 elif EMBEDDER == 'titan':
     W_FEATURE_DIM = 768  # deep features from WSIs. Titan: 768, Prism: 1280
+
+AGGREG_CASE_WSI = False ## False: just select the first WSI in alphabetical order for reproducibility in cross-validations. True: mean aggregates the multiple WSIs per case.
 
 M_FEATURE_DIM = 2048    # 2048-dim MRI features
 CLINICAL_DIM = len(CLINICAL_FEATURES)
@@ -84,5 +92,9 @@ VERBOSE = True
 
 # === Inference ===
 USE_ENSEMBLE = True  # True means ensemble the results of the best models from the 5 folds. False means use the best of the 5 folds
-
+INFER_LOCAL = True ## True means: use the features in the form of csv files rather than Challenge expected json (for clinical), wsi_path (for WSIs) and mri_path (for MRI files);
+                   ## False means: Challenge expected json (for clinical), wsi_path (for WSIs) and mri_path (for MRI files); This is currenly only implemented for clinical features.
+                   ## To verify the local code works the same in the docker container, compare scores for 1 or 2 cases. the scores are saved to the results folder to a csv file _train_predictions.csv
+INFER_SINGLE = False ## Ture means: print score for a single file using the Challenge expected interface i.e. using paths to the files for a single case to generate score for a single case.
+                    ## Note: the INFER_SINGLE will not produce c-index but only print the score of the first case from the csv file CLINICAL_CSV
 GLOBAL_DIR = f"{OUTPUT_DIR}CLINICAL_{USE_CLINICAL_FEATURES}_MRI_{USE_MRI_FEATURES}_WSI_{USE_WSI_FEATURES}_MAGNIF_{MAG}_PATCH_SZ_{PATCH_SIZE}_EMBEDDER_{EMBEDDER}_MODEL_{SURVIVAL_MODEL}_FUSION_{FUSION_TYPE}_SCALE_{SCALE_DATA}_EPOCHS_{EPOCHS}/" ## main path for results
