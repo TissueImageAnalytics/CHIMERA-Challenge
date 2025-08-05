@@ -3,7 +3,7 @@
 # === common =====
 SCALE_DATA = True
 TASK = 1 ## 1: prostate
-RUNS = 3 ## number of times to run the 5-folds cross-validation
+RUNS = 10 ## number of times to run the 5-folds cross-validation
 
 # === Base line Cox PH model === ## for cox_baseline.py only
 COX_BASELINE_DIR = "/home/u1970167/chimera/task1/experiments/results/Cox_baseline/"
@@ -19,8 +19,9 @@ MODALITIES = ['t2w'] ## to use t2w only: ['t2w'] , to use all: ['t2w', 'adc', 'h
 
 # === Data paths ===
 CLINICAL_CSV = "/home/u1970167/chimera/task1/clinical_data.csv"        # Clinical features CSV with Case_ID column
+RADIOMIC_CSV = "/home/u1970167/chimera/task1/radiology/features/radiology_data.csv" # Radiomic handcrafted features CSV with Case_ID column
 CLINICAL_JSON_DIR = '/home/u1970167/chimera/task1/clinical_data_v2/' ## path to the clincal json files for each case. this is needed when doing inference from clinical features from json files instead of a single csv file
-EMBEDDER = 'titan' ## 'titan' or 'prism'
+EMBEDDER = 'prism' ## 'titan' or 'prism'
 MAG = 10
 PATCH_SIZE = 1024
 
@@ -56,13 +57,14 @@ MIXED_COLS = ["pT_stage"] ## pT_stage has values such 2, 2a, 2b, 3 etc. these ne
 
 # === Experiment settings ===
 USE_CLINICAL_FEATURES = True
+USE_RADIOMIC_FEATURES = True
 USE_MRI_FEATURES = False
 USE_WSI_FEATURES = True
 
 SURVIVAL_MODEL = 'deephit'  # Options: 'cox' or 'deephit'
 # Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params) or 
-# 'gated_cross' (sample-specific gating + cross-modal attention using Clinical as query) 
-FUSION_TYPE = 'linear'  
+# 'gated_cross' (sample-specific gating + cross-modal attention using Clinical as query), 'cross_att' (AS cross attention fusion)
+FUSION_TYPE = 'cross_att'  
 DEEPHIT_LOSS = 'uncensored' # 'censored' or 'uncensored'. 'censored' has a extra term for accounting for censored data whereas 'uncensored' only considers uncensored cases
 TIME_BINS = 30  # Only for deephit
 NUM_FOLDS = 5
@@ -79,6 +81,7 @@ elif EMBEDDER == 'titan':
 AGGREG_CASE_WSI = False ## False: just select the first WSI in alphabetical order for reproducibility in cross-validations. True: mean aggregates the multiple WSIs per case.
 
 M_FEATURE_DIM = 2048    # 2048-dim MRI features
+R_FEATURE_DIM = 1 ## handcrafted MRI features
 CLINICAL_DIM = len(CLINICAL_FEATURES)
 
 # === Training settings ===
@@ -86,15 +89,16 @@ EPOCHS = 100
 LR = 1e-3
 WD = 1e-4
 BATCH_SIZE = 16
-
+PATIENCE = 20 ## early-stop on no improvement to c-index
 # === Debug ===
 VERBOSE = True
 
 # === Inference ===
-USE_ENSEMBLE = True  # True means ensemble the results of the best models from the 5 folds. False means use the best of the 5 folds
+USE_ENSEMBLE = True  # True means ensemble the results of the best models from the 5 folds across the N runs. False means use the best of the 5 folds across the N runs. Currently, only ENSEMBLE is implemented so do not set to False
 INFER_LOCAL = True ## True means: use the features in the form of csv files rather than Challenge expected json (for clinical), wsi_path (for WSIs) and mri_path (for MRI files);
                    ## False means: Challenge expected json (for clinical), wsi_path (for WSIs) and mri_path (for MRI files); This is currenly only implemented for clinical features.
                    ## To verify the local code works the same in the docker container, compare scores for 1 or 2 cases. the scores are saved to the results folder to a csv file _train_predictions.csv
-INFER_SINGLE = False ## Ture means: print score for a single file using the Challenge expected interface i.e. using paths to the files for a single case to generate score for a single case.
+INFER_SINGLE = False ## True means: print score for a single file using the Challenge expected interface i.e. using paths to the files for a single case to generate score for a single case.
                     ## Note: the INFER_SINGLE will not produce c-index but only print the score of the first case from the csv file CLINICAL_CSV
-GLOBAL_DIR = f"{OUTPUT_DIR}CLINICAL_{USE_CLINICAL_FEATURES}_MRI_{USE_MRI_FEATURES}_WSI_{USE_WSI_FEATURES}_MAGNIF_{MAG}_PATCH_SZ_{PATCH_SIZE}_EMBEDDER_{EMBEDDER}_MODEL_{SURVIVAL_MODEL}_FUSION_{FUSION_TYPE}_SCALE_{SCALE_DATA}_EPOCHS_{EPOCHS}/" ## main path for results
+#GLOBAL_DIR = f"{OUTPUT_DIR}CLINICAL_{USE_CLINICAL_FEATURES}_MRI_{USE_MRI_FEATURES}_RADIO_{USE_RADIOMIC_FEATURES}_WSI_{USE_WSI_FEATURES}_MAGNIF_{MAG}_PATCH_SZ_{PATCH_SIZE}_EMBEDDER_{EMBEDDER}_MODEL_{SURVIVAL_MODEL}_FUSION_{FUSION_TYPE}_SCALE_{SCALE_DATA}_EPOCHS_{EPOCHS}/" ## main path for results
+GLOBAL_DIR = f"{OUTPUT_DIR}task1_submit2"

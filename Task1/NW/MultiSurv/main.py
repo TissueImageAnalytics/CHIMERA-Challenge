@@ -4,13 +4,14 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 from config import *
-from utils.data_utils import load_clinical, load_mri_features, load_wsi_features, load_wsi_features_mult, create_folds, get_feature_dimensionalities, load_folds
+from utils.data_utils import load_clinical, load_mri_features, load_radiomic_features, load_wsi_features, load_wsi_features_mult, create_folds, get_feature_dimensionalities, load_folds
 from train_eval import SurvivalDataset, train_one_epoch, evaluate, save_model
 from models.model import MultimodalSurvivalModel
 import torch.optim as optim
 from sampler import EventBalancedBatchSampler  # Import custom sampler
 import matplotlib.pyplot as plt
 from mri_feature_extraction import extract_MRI_features
+from radiomic_feature_extraction import extract_radiomic_features
 from sksurv.metrics import concordance_index_censored
 from sklearn.preprocessing import StandardScaler
 import joblib
@@ -33,9 +34,9 @@ def plot_learning_curve(train_losses, val_cindices, fold_idx):
     plt.savefig(plt_path)
     plt.close()
 
-def get_or_fit_scaler(name, train_array, fit=True, fold=0):
+def get_or_fit_scaler(name, train_array, fit=True, run=0, fold=0):
     os.makedirs(GLOBAL_DIR, exist_ok=True)
-    scaler_path = os.path.join(GLOBAL_DIR, f"{name}_scaler_{fold}.pkl")
+    scaler_path = os.path.join(GLOBAL_DIR, f"{name}_scaler_run_{run}_{fold}.pkl")
     
     if fit:
         scaler = StandardScaler()
@@ -46,8 +47,8 @@ def get_or_fit_scaler(name, train_array, fit=True, fold=0):
 
     return scaler
 
-def maybe_scale(name, train_array, val_array, fit=True, fold=0):
-    scaler = get_or_fit_scaler(name, train_array, fit=fit, fold=fold)
+def maybe_scale(name, train_array, val_array, fit=True, run=0, fold=0):
+    scaler = get_or_fit_scaler(name, train_array, fit=fit, run=run, fold=fold)
     train_scaled = scaler.transform(train_array) if train_array is not None else None
     val_scaled = scaler.transform(val_array) if val_array is not None else None
     return train_scaled, val_scaled
@@ -78,12 +79,15 @@ def main():
             train_clinical = clinical_df[clinical_df['Case_ID'].isin(train_ids)].sort_values('Case_ID')
             val_clinical = clinical_df[clinical_df['Case_ID'].isin(val_ids)].sort_values('Case_ID')
 
+            # Clinical features
             train_clin_array = train_clinical.drop(columns=['Case_ID', 'duration', 'event']).values if USE_CLINICAL_FEATURES else None
             val_clin_array = val_clinical.drop(columns=['Case_ID', 'duration', 'event']).values if USE_CLINICAL_FEATURES else None
 
+            # MRI features
             train_mri_array = load_mri_features(train_clinical['Case_ID'].tolist()) if USE_MRI_FEATURES else None
             val_mri_array = load_mri_features(val_clinical['Case_ID'].tolist()) if USE_MRI_FEATURES else None
 
+            # WSI features
             if AGGREG_CASE_WSI:
                 train_wsi_array = load_wsi_features_mult(train_clinical['Case_ID'].tolist(), csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
                 val_wsi_array   = load_wsi_features_mult(val_clinical['Case_ID'].tolist(), csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
@@ -91,14 +95,32 @@ def main():
                 train_wsi_array = load_wsi_features(train_clinical['Case_ID'].tolist(), csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
                 val_wsi_array   = load_wsi_features(val_clinical['Case_ID'].tolist(), csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
 
-            # === Optional Scaling ===
+            # Radiomic features (handled separately)
+            train_radiomic_array, val_radiomic_array = None, None
+            if USE_RADIOMIC_FEATURES:
+                train_radiomic_array = load_radiomic_features(train_clinical['Case_ID'].tolist(), csv_path=RADIOMIC_CSV)
+                val_radiomic_array = load_radiomic_features(val_clinical['Case_ID'].tolist(), csv_path=RADIOMIC_CSV)
+
+                if SCALE_DATA:
+                    train_radiomic_array, val_radiomic_array = maybe_scale("radiomic", train_radiomic_array, val_radiomic_array, fit=True, run=run_num, fold=fold_idx)
+
+            # Optional scaling (only for clinical, MRI, WSI)
             if SCALE_DATA:
                 if USE_CLINICAL_FEATURES:
-                    train_clin_array, val_clin_array = maybe_scale("clinical", train_clin_array, val_clin_array, fit=True, fold=fold_idx)
+                    train_clin_array, val_clin_array = maybe_scale("clinical", train_clin_array, val_clin_array, fit=True, run=run_num, fold=fold_idx)
                 if USE_MRI_FEATURES:
-                    train_mri_array, val_mri_array = maybe_scale("mri", train_mri_array, val_mri_array, fit=True, fold=fold_idx)
+                    train_mri_array, val_mri_array = maybe_scale("mri", train_mri_array, val_mri_array, fit=True, run=run_num, fold=fold_idx)
                 if USE_WSI_FEATURES:
-                    train_wsi_array, val_wsi_array = maybe_scale("wsi", train_wsi_array, val_wsi_array, fit=True, fold=fold_idx)
+                    train_wsi_array, val_wsi_array = maybe_scale("wsi", train_wsi_array, val_wsi_array, fit=True, run=run_num, fold=fold_idx)
+
+            # Concatenate radiomic features to clinical AFTER scaling
+            if USE_RADIOMIC_FEATURES:
+                if train_clin_array is not None:
+                    train_clin_array = np.concatenate([train_clin_array, train_radiomic_array], axis=1)
+                    val_clin_array = np.concatenate([val_clin_array, val_radiomic_array], axis=1)
+                else:
+                    train_clin_array = train_radiomic_array
+                    val_clin_array = val_radiomic_array
 
             train_durations = train_clinical['duration'].values
             train_events = train_clinical['event'].values
@@ -116,6 +138,11 @@ def main():
             m_dim = M_FEATURE_DIM if USE_MRI_FEATURES else 0
             w_dim = W_FEATURE_DIM if USE_WSI_FEATURES else 0
 
+            r_dim = R_FEATURE_DIM if USE_RADIOMIC_FEATURES else 0
+            
+            if r_dim > 0:
+                c_dim += r_dim
+
             model = MultimodalSurvivalModel(c_dim, m_dim, w_dim,
                                             fusion_type=FUSION_TYPE,
                                             survival_model=SURVIVAL_MODEL,
@@ -128,7 +155,6 @@ def main():
 
             best_cindex = -np.inf
             best_epoch = 0
-            patience = 10
             wait = 0
 
             # Lists to store loss and C-index for plotting
@@ -153,14 +179,14 @@ def main():
                 else:
                     wait += 1
 
-                if wait >= patience:
+                if wait >= PATIENCE:
                     print(f"Early stopping at epoch {epoch}. Best C-index: {best_cindex:.4f} at epoch {best_epoch}")
                     break
 
             val_cindices.append(best_cindex)
 
             # Plot training curve
-            plot_learning_curve(train_losses, val_cindices_fold, fold_idx)
+            #plot_learning_curve(train_losses, val_cindices_fold, fold_idx)
 
         avg_cindex = round(np.mean(val_cindices), 3)
         std_cindex = round(np.std(val_cindices), 2)
@@ -182,9 +208,10 @@ def main():
             print(f"\nSaved fold-wise C-indices to {results_path}")
         
         run_cindices.append((run_num, avg_cindex, val_cindices))
+        run_stds.append(std_cindex)
 
     print(f"\n Run: {run_num}=======Modalities===========")
-    print(f"Clinical: {USE_CLINICAL_FEATURES}, MRI: {USE_MRI_FEATURES}, WSI: {USE_WSI_FEATURES}")
+    print(f"Clinical: {USE_CLINICAL_FEATURES}, MRI_hand: {USE_RADIOMIC_FEATURES}, MRI: {USE_MRI_FEATURES}, WSI: {USE_WSI_FEATURES}")
     avg_cindices_only = [c[1] for c in run_cindices]  # extract just the average C-index per run
     print(f"\nRun Average C-index: {round(np.mean(avg_cindices_only), 3)}, C-indices: {avg_cindices_only}")
 
@@ -203,15 +230,22 @@ def main():
         json.dump(best_run_info, f, indent=2)
 
     print(f"\n Best Run: {best_run_num} | Avg C-index: {best_run[1]:.4f}")
+    print(f"\nRun C-index Stds {run_stds}")
 
+    # === Overall standard deviation across all folds in all runs ===
+    avg_cindices_only = [c[1] for c in run_cindices]  # extract just the average C-index per run
+    print(f"\nRuns Average C-index: {round(np.mean(avg_cindices_only), 3)} ± {round(np.std(avg_cindices_only), 3)}")
+    print(f"C-indices: {avg_cindices_only}")
 
 if __name__ == "__main__":
     os.makedirs(GLOBAL_DIR, exist_ok=True)
     ## Set up the paths in config.py
-    ## Step 1: Extract embeddings using a pretraind model
-    print("\n=== Step 1: MRI deep features extraction ===")
+    ## Extract embeddings using a pretraind model
+    print("\n=== MRI deep features extraction ===")
     #extract_MRI_features()
-
+    print("\n=== MRI handcrafted features extraction ===")
+    #extract_radiomic_features()
+    
     ## Step 2: Do 5-folds cross-valiation using existing stratified random fold
     #print(f"\n=== Step 2: {NUM_FOLDS}-folds cross ===")
     main()

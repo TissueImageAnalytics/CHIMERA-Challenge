@@ -71,7 +71,6 @@ class GatedCrossModalFusion(nn.Module):
         else:
             return clinical
 
-
 class ModalityAttentionFusion(nn.Module):
     def __init__(self, input_dims):
         super().__init__()
@@ -83,6 +82,33 @@ class ModalityAttentionFusion(nn.Module):
         fused = (stacked * weights.view(1, -1, 1)).sum(dim=1)
         return fused
 
+class CrossAttentionFusion(nn.Module):
+    def __init__(self, dim, num_heads=4):
+        super().__init__()
+        self.dim = dim
+        self.num_heads = num_heads
+        self.attn_layers = nn.ModuleList([
+            nn.MultiheadAttention(embed_dim=dim[d], num_heads=num_heads, batch_first=True)
+            for d in range(len(dim))
+        ])
+
+    def forward(self, features):
+        B = features[0].size(0)
+        N = len(features)
+
+        keys_values = torch.stack(features, dim=1)  # [B, N, D]
+        attended = []
+
+        for i in range(N):
+            query = features[i].unsqueeze(1)  # [B, 1, D]
+            attn = self.attn_layers[i]
+            # Exclude self from keys/values to force intermodal learning
+            kv = torch.stack([features[j] for j in range(N) if j != i], dim=1)  # [B, N-1, D]
+            out, _ = attn(query, kv, kv)
+            attended.append(out.squeeze(1))  # [B, D]
+
+        fused = torch.mean(torch.stack(attended, dim=1), dim=1)  # [B, D]
+        return fused
 
 class LinearFusion(nn.Module):
     def __init__(self, input_dims):
@@ -206,6 +232,9 @@ class MultimodalSurvivalModel(nn.Module):
             fusion_dim = HIDDEN_DIM + HIDDEN_DIM
         elif fusion_type == 'guided':
             self.fusion = GuidedModalityFusion(input_dims, hidden_dim=HIDDEN_DIM)
+            fusion_dim = HIDDEN_DIM
+        elif fusion_type == 'cross_att':
+            self.fusion = CrossAttentionFusion(input_dims)
             fusion_dim = HIDDEN_DIM
         else:
             raise ValueError(f"Unknown fusion_type {fusion_type}")

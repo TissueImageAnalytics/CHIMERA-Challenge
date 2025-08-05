@@ -45,12 +45,6 @@ def load_clinical():
     clinical_df = clinical_df.reset_index(drop=True)
     return clinical_df
 
-import glob
-
-import glob
-import os
-import numpy as np
-
 def load_mri_features(case_ids):
     feats = []
     missing = []
@@ -106,7 +100,6 @@ def load_mri_features(case_ids):
         print(f" Missing MRI features for {len(missing)} cases: {missing}")
 
     return np.stack(feats)
-
 
 def load_wsi_features_mult(case_ids, csv_path="path/to/wsi_features.csv"):
     """
@@ -180,6 +173,13 @@ def load_wsi_features(case_ids, csv_path="path/to/wsi_features.csv"):
         selected_features.append(selected_row[feature_cols].values.astype(np.float32))
 
     return np.stack(selected_features)
+
+def load_radiomic_features(case_ids, csv_path):
+    df = pd.read_csv(csv_path)
+    df['Case_ID'] = df['Case_ID'].astype('str')
+    df = df[df['Case_ID'].isin(case_ids)].sort_values('Case_ID')
+    features = df.drop(columns=['Case_ID']).values
+    return features
 
 def load_folds():
     #fold_file = os.path.join(FOLDS_DIR, "folds.csv")

@@ -3,16 +3,16 @@ import numpy as np
 import pandas as pd
 import torch
 from config import *
-from utils.data_utils import load_clinical, load_mri_features, load_wsi_features, load_wsi_features_mult, get_feature_dimensionalities, convert_mixed_column_to_numeric
+from utils.data_utils import load_clinical, load_radiomic_features, load_mri_features, load_wsi_features, load_wsi_features_mult, get_feature_dimensionalities, convert_mixed_column_to_numeric
 from models.model import MultimodalSurvivalModel
 from sksurv.metrics import concordance_index_censored
 from sklearn.preprocessing import StandardScaler
 import joblib
 import json
 
-def get_or_fit_scaler(name, train_array, fit=True, fold=0):
+def get_or_fit_scaler(name, train_array, fit=True, run=0, fold=0):
     os.makedirs(GLOBAL_DIR, exist_ok=True)
-    scaler_path = os.path.join(GLOBAL_DIR, f"{name}_scaler_{fold}.pkl")
+    scaler_path = os.path.join(GLOBAL_DIR, f"{name}_scaler_run_{run}_{fold}.pkl")
     
     if fit:
         scaler = StandardScaler()
@@ -23,8 +23,8 @@ def get_or_fit_scaler(name, train_array, fit=True, fold=0):
 
     return scaler
 
-def maybe_scale(name, train_array, val_array, fit=True, fold=0):
-    scaler = get_or_fit_scaler(name, train_array, fit=fit, fold=fold)
+def maybe_scale(name, train_array, val_array, fit=True, run=0, fold=0):
+    scaler = get_or_fit_scaler(name, train_array, fit=fit, run=run, fold=fold)
     train_scaled = scaler.transform(train_array) if train_array is not None else None
     val_scaled = scaler.transform(val_array) if val_array is not None else None
     return train_scaled, val_scaled
@@ -107,9 +107,11 @@ def inference(test_case_ids):
     # Get input arrays
     test_clinical = clinical_df[clinical_df['Case_ID'].isin(test_case_ids)].sort_values('Case_ID')
     
+    test_clin_array = test_clinical.drop(columns=['Case_ID', 'duration', 'event']).values if USE_CLINICAL_FEATURES else None
+
     #### for single case from clincal json @@@@@@@@@@@@@@@@@@@@@@@@@@
     if INFER_SINGLE:
-        test_clin_array = test_clinical.drop(columns=['Case_ID', 'duration', 'event']).values if USE_CLINICAL_FEATURES else None
+        
         test_case = os.listdir(CLINICAL_JSON_DIR)[0]
         input_chimera_clinical_data_of_prostate_cancer_patients = f"{CLINICAL_JSON_DIR}/{test_case}"
         with open(input_chimera_clinical_data_of_prostate_cancer_patients, "r") as f:
@@ -121,32 +123,29 @@ def inference(test_case_ids):
         ## Temp work around: change the test_case_ids as in the next line
         test_case_ids = [test_case.split('.json')[0]]
 
-        test_mri_array = load_mri_features(test_case_ids) if USE_MRI_FEATURES else None
+    if USE_RADIOMIC_FEATURES:
+        test_radiomic_array = load_radiomic_features(test_case_ids, csv_path=RADIOMIC_CSV)
 
-        if AGGREG_CASE_WSI:
-            test_wsi_array = load_wsi_features_mult(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
-        else:
-            test_wsi_array = load_wsi_features(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
+    test_mri_array = load_mri_features(test_case_ids) if USE_MRI_FEATURES else None
+
+    if AGGREG_CASE_WSI:
+        test_wsi_array = load_wsi_features_mult(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
     else:
-        test_clin_array = test_clinical.drop(columns=['Case_ID', 'duration', 'event']).values if USE_CLINICAL_FEATURES else None
-
-        ## ## testing multiple cases from json so that confirm the c-index works
-        if INFER_LOCAL:
-            test_clin_array = test_clinical.drop(columns=['Case_ID', 'duration', 'event']).values if USE_CLINICAL_FEATURES else None
-        else:
-            test_clin_array = load_clinical_vectors_from_jsons(test_case_ids) 
-
-        test_mri_array = load_mri_features(test_case_ids) if USE_MRI_FEATURES else None
-
-        if AGGREG_CASE_WSI:
-            test_wsi_array = load_wsi_features_mult(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
-        else:
-            test_wsi_array = load_wsi_features(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
+        test_wsi_array = load_wsi_features(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
+    
+    ## ## testing multiple cases from json so that confirm the c-index works
+    if not INFER_LOCAL:
+        test_clin_array = load_clinical_vectors_from_jsons(test_case_ids) 
 
     # Feature dimensions
     c_dim = clinical_dim if USE_CLINICAL_FEATURES else 0
     m_dim = M_FEATURE_DIM if USE_MRI_FEATURES else 0
     w_dim = W_FEATURE_DIM if USE_WSI_FEATURES else 0
+
+    r_dim = R_FEATURE_DIM if USE_RADIOMIC_FEATURES else 0
+            
+    if r_dim > 0:
+        c_dim += r_dim
 
     # Prepare model template
     model = MultimodalSurvivalModel(
@@ -179,9 +178,18 @@ def inference(test_case_ids):
                 print(f"[Warning] Model missing for fold {fold_idx}: {model_path}")
                 continue
 
-            fold_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, fold=fold_idx) if USE_CLINICAL_FEATURES else (None, None)
-            fold_mri_array, _ = maybe_scale("mri", test_mri_array, test_mri_array, fit=False, fold=fold_idx) if USE_MRI_FEATURES else (None, None)
-            fold_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array, fit=False, fold=fold_idx) if USE_WSI_FEATURES else (None, None)
+            fold_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, run=best_run, fold=fold_idx) if USE_CLINICAL_FEATURES else (None, None)
+            fold_radi_array, _ = maybe_scale("radiomic", test_radiomic_array, test_radiomic_array, fit=False, run=best_run, fold=fold_idx) if USE_RADIOMIC_FEATURES else (None, None)
+
+            # Concatenate radiomic features to clinical AFTER scaling
+            if USE_RADIOMIC_FEATURES:
+                if fold_clin_array is not None:
+                    fold_clin_array = np.concatenate([fold_clin_array, fold_radi_array], axis=1)
+                else:
+                    fold_clin_array = fold_radi_array
+
+            fold_mri_array, _ = maybe_scale("mri", test_mri_array, test_mri_array, fit=False, run=best_run, fold=fold_idx) if USE_MRI_FEATURES else (None, None)
+            fold_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array, fit=False, run=best_run, fold=fold_idx) if USE_WSI_FEATURES else (None, None)
 
             if fold_clin_array is not None and fold_clin_array.ndim == 1:
                 fold_clin_array = fold_clin_array.reshape(1, -1)
@@ -205,7 +213,7 @@ def inference(test_case_ids):
             raise RuntimeError("No models loaded for ensemble inference.")
 
         avg_pmf = np.mean(pmf_all_folds, axis=0)
-    else:
+    else: ## This is not updated and shold not be used at the moment.
         # Load best run info
         best_run_path = os.path.join(GLOBAL_DIR, "best_run.json")
         if not os.path.exists(best_run_path):
@@ -220,9 +228,9 @@ def inference(test_case_ids):
         model_path = os.path.join(GLOBAL_DIR, f"best_model_run{best_run}_fold{best_fold}.pt")
         print(f"Using best single model: Run {best_run}, Fold {best_fold}, {model_path}")
 
-        test_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, fold=best_fold-1) if USE_CLINICAL_FEATURES else (None, None)
-        test_mri_array, _ = maybe_scale("mri", test_mri_array, test_mri_array, fit=False, fold=best_fold-1) if USE_MRI_FEATURES else (None, None)
-        test_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array, fit=False, fold=best_fold-1) if USE_WSI_FEATURES else (None, None)
+        test_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, run=0, fold=best_fold-1) if USE_CLINICAL_FEATURES else (None, None)
+        test_mri_array, _ = maybe_scale("mri", test_mri_array, test_mri_array, fit=False, run=0, fold=best_fold-1) if USE_MRI_FEATURES else (None, None)
+        test_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array, fit=False, run=0, fold=best_fold-1) if USE_WSI_FEATURES else (None, None)
 
         if test_clin_array is not None and test_clin_array.ndim == 1:
             test_clin_array = test_clin_array.reshape(1, -1)
