@@ -15,9 +15,8 @@ from skimage.transform import resize
 import joblib
 
 from data_utils import convert_mixed_column_to_numeric
-from config import *
-import resnet
-from model import MultimodalSurvivalModel
+from config614 import *
+from model614 import MultimodalSurvivalModel
 import h5py
 
 ## ==========User defined functions=============== ##
@@ -26,7 +25,6 @@ import h5py
 INPUT_PATH = Path("/input")
 OUTPUT_PATH = Path("/output")
 RESOURCE_PATH = Path("resources")
-MRI_WEIGHTS_PATH = Path("/opt/app/resources/weights_scalers_folder/resnet_50_23dataset.pth")
 SURVIVAL_WEIGHTS_PATH = Path("/opt/app/resources/weights_scalers_folder")
 SCALER_WEIGHTS_PATH = Path("/opt/app/resources/weights_scalers_folder")
 
@@ -38,7 +36,7 @@ def write_json_file(*, location, content):
 
 def get_or_fit_scaler(name, train_array, fit=True, fold=0):
     os.makedirs(SCALER_WEIGHTS_PATH, exist_ok=True)
-    scaler_path = os.path.join(SCALER_WEIGHTS_PATH, f"{name}_scaler_{fold}.pkl")
+    scaler_path = os.path.join(SCALER_WEIGHTS_PATH, f"{name}_scaler_run_9_{fold}.pkl")
     
     if fit:
         scaler = StandardScaler()
@@ -46,8 +44,6 @@ def get_or_fit_scaler(name, train_array, fit=True, fold=0):
         joblib.dump(scaler, scaler_path)
     else:
         scaler = joblib.load(scaler_path)
-        print(f"scaler name: {name}, fold: {fold}")
-        print(f"scaler mean: {scaler.mean_}, std: {scaler.scale_}")
 
     return scaler
 
@@ -65,24 +61,6 @@ def strip_prefix_if_present(state_dict, prefix="module."):
         new_key = k[len(prefix):] if k.startswith(prefix) else k
         new_state_dict[new_key] = v
     return new_state_dict
-
-
-def load_medicalnet_resnet50(model_weights_path, device):
-    model = resnet.resnet50(
-        sample_input_D=19,
-        sample_input_H=128,
-        sample_input_W=120,
-        num_seg_classes=23,
-        shortcut_type='B',
-        no_cuda=False
-    )
-    checkpoint = torch.load(model_weights_path, map_location=device)
-    state_dict = checkpoint.get('state_dict', checkpoint)
-    state_dict = strip_prefix_if_present(state_dict)
-    model.load_state_dict(state_dict, strict=False)
-    model.to(device)
-    model.eval()
-    return model
 
 
 def resample_to_reference(img, reference):
@@ -176,51 +154,6 @@ def extract_clinical_feats():
     return clinical_feats
 
 
-def extract_MRI_feats():
-    # state_dict = torch.load(model_dir / "a_tarball_subdirectory" / "MRI_model_wts.pt", map_location='cpu')
-    # model.load_state_dict(state_dict)
-    # ...
-    # mri = model(volumne_tensor)
-    # return mri
-    t2_dir = INPUT_PATH / "images/axial-t2-prostate-mri"
-    adc_dir = INPUT_PATH / "images/axial-adc-prostate-mri"
-    hbv_dir = INPUT_PATH / "images/transverse-hbv-prostate-mri"
-    t2_mask_dir = INPUT_PATH / "images/prostate-tissue-mask-for-axial-t2-prostate-mri"
-
-    t2_path_list = glob(str(t2_dir / "*.mha"))
-    adc_path_list = glob(str(adc_dir / "*.mha"))
-    hbv_path_list = glob(str(hbv_dir / "*.mha"))    
-    t2_mask_path_list = glob(str(t2_mask_dir / "*.mha"))
-
-    pprint("MRI files found:")
-    pprint(t2_path_list)
-    pprint(adc_path_list)
-    pprint(hbv_path_list)
-    pprint(t2_mask_path_list)
-
-    # Just use T2w scan for now
-    # select the first mask
-    mask_path = t2_mask_path_list[0]
-    mask_img = sitk.ReadImage(mask_path)
-    t2_path = t2_path_list[0]
-    t2_img = sitk.ReadImage(t2_path)
-
-    # Apply mask
-    mask_resampled = resample_to_reference(mask_img, t2_img)
-    mask_array = sitk.GetArrayFromImage(mask_resampled)
-    img_array = apply_mask(sitk.GetArrayFromImage(t2_img), mask_array)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_medicalnet_resnet50(MRI_WEIGHTS_PATH, device)
-    feat = extract_features_from_volume(img_array, model, device)
-
-    if feat.ndim == 1:
-        feat = feat.reshape(1, -1)
-
-    print("MRI features extracted.")
-
-    return feat
-
 
 def extract_radiomic_feats():
     # state_dict = torch.load(model_dir / "a_tarball_subdirectory" / "MRI_model_wts.pt", map_location='cpu')
@@ -267,23 +200,6 @@ def extract_WSI_feats():
     wsi_path = wsi_path_list[0]
     pprint(f"Selected WSI: {wsi_path}")
 
-    # reader = WSIReader.open(wsi_path)
-
-    # pprint(reader.info.as_dict())
-    # command = [
-    #     "python", "run_batch_of_slides.py",
-    #     "--task", "all",
-    #     "--wsi_dir", wsi_dir,
-    #     "--job_dir", temp_output_dir,
-    #     "--slide_encoder", "titan",
-    #     "--mag", "20",
-    #     "--patch_size", "1024",
-    #     "--max_workers", "32"
-    # ]
-    # subprocess.run(command, check=True)
-    # ...
-    # wsi = aggregate(temp_output_dir)
-
     # TRIDENT Features
     try:
         trident_dir = OUTPUT_PATH / "trident_processed"
@@ -306,7 +222,7 @@ def extract_WSI_feats():
     except Exception as e:
         print(f"Error occurred while reading TRIDENT features: {e}")
 
-        return torch.zeros((1,768), dtype=torch.float32)  # Default to zero vector if error occurs
+        return torch.zeros((1,1280), dtype=torch.float32)  # Default to zero vector if error occurs
 
 
 ## ==========Challenge functions=============== ##
@@ -314,13 +230,12 @@ def extract_WSI_feats():
 
 ## I assume we would need to implement all (i.e. from 0 to 9) of the below handlers but just put the last one
 
-def predict_score(clinical_feats, radiomic_feats, mri_feats, wsi_feats):
+def predict_score(clinical_feats, radiomic_feats, wsi_feats):
     """Predict the score using the model.
     
     Args:
         clinical_feats (np.ndarray): Clinical features.
         radiomic_feats (np.ndarray): Radiomic features.
-        mri_feats (torch.Tensor): MRI features.
         wsi_feats (torch.Tensor): WSI features.
     
     Returns:
@@ -329,13 +244,13 @@ def predict_score(clinical_feats, radiomic_feats, mri_feats, wsi_feats):
 
     ### Combine radiomic and clinical features
     c_dim = 10
-    m_dim = 2048
+    m_dim = 0
     # w_dim = 768 # For TITAN!
     w_dim = 1280  # For PRISM!
     r_dim = 1
 
     if radiomic_feats is not None:
-        clinical_feats = np.concatenate([clinical_feats, radiomic_feats], axis=1)
+    #     clinical_feats = np.concatenate([clinical_feats, radiomic_feats], axis=1)
         c_dim += r_dim
 
     # Prepare model template
@@ -354,40 +269,36 @@ def predict_score(clinical_feats, radiomic_feats, mri_feats, wsi_feats):
         pmf_all_folds = []
 
         for fold_idx in range(NUM_FOLDS):
-            model_path = os.path.join(SURVIVAL_WEIGHTS_PATH, f"best_model_fold{fold_idx}.pt")
+            model_path = os.path.join(SURVIVAL_WEIGHTS_PATH, f"best_model_run9_fold{fold_idx}.pt")
             if not os.path.exists(model_path):
                 print(f"[Warning] Model missing for fold {fold_idx}: {model_path}")
                 continue
 
-            print(f"MRI before scaling: {mri_feats[0, 0:10]}")
-            print(mri_feats.shape, clinical_feats.shape, wsi_feats.shape)
-
             fold_clin_array, _ = maybe_scale("clinical", clinical_feats, clinical_feats, fit=False, fold=fold_idx) if USE_CLINICAL_FEATURES else (None, None)
-            fold_mri_array, _ = maybe_scale("mri", mri_feats, mri_feats, fit=False, fold=fold_idx) if USE_MRI_FEATURES else (None, None)
+            fold_mri_array, _ = (None, None)
+            fold_radi_array, _ = maybe_scale("radiomic", radiomic_feats, radiomic_feats, fit=False, fold=fold_idx) if USE_RADIOMIC_FEATURES else (None, None)
             fold_wsi_array, _ = maybe_scale("wsi", wsi_feats, wsi_feats, fit=False, fold=fold_idx) if USE_WSI_FEATURES else (None, None)
 
+            fold_clin_array = np.concatenate([fold_clin_array, fold_radi_array], axis=1)
+            
             if fold_clin_array is not None and fold_clin_array.ndim == 1:
                 fold_clin_array = fold_clin_array.reshape(1, -1)
-            if fold_mri_array is not None and fold_mri_array.ndim == 1:
-                fold_mri_array = fold_mri_array.reshape(1, -1)
             if fold_wsi_array is not None and fold_wsi_array.ndim == 1:
                 fold_wsi_array = fold_wsi_array.reshape(1, -1)
 
-            clin_tensor = torch.tensor(fold_clin_array, dtype=torch.float32).to(device) if fold_clin_array is not None else torch.zeros((1, c_dim), device=device)
-            mri_tensor = torch.tensor(fold_mri_array, dtype=torch.float32).to(device) if fold_mri_array is not None else torch.zeros((1, m_dim), device=device)
-            wsi_tensor = torch.tensor(fold_wsi_array, dtype=torch.float32).to(device) if fold_wsi_array is not None else torch.zeros((1, w_dim), device=device)
 
-            print("Fold:", fold_idx)
-            print("clinical:", clin_tensor[0, 0:10])  # Print first 10 clinical features for debugging
-            print("MRI:", mri_tensor[0, 0:10])  # Print first 10 MRI features for debugging
-            print("WSI:", wsi_tensor[0, 0:10])  # Print first 10 WSI features for debugging
+ 
+
+            clin_tensor = torch.tensor(fold_clin_array, dtype=torch.float32).to(device) if fold_clin_array is not None else torch.zeros((1, c_dim), device=device)
+            mri_tensor = torch.zeros((1, m_dim), device=device)
+            wsi_tensor = torch.tensor(fold_wsi_array, dtype=torch.float32).to(device) if fold_wsi_array is not None else torch.zeros((1, w_dim), device=device)
 
             model.load_state_dict(torch.load(model_path, map_location=device))
             model.eval()
 
             with torch.no_grad():
                 out = model(clinical_feat=clin_tensor, mri_feat=mri_tensor, wsi_feat=wsi_tensor)
-                pmf_all_folds.append(out.cpu().numpy())
+                pmf_all_folds.append(out[0].cpu().numpy())
 
         if not pmf_all_folds:
             raise RuntimeError("No models loaded for ensemble inference.")
@@ -411,20 +322,9 @@ def predict_score(clinical_feats, radiomic_feats, mri_feats, wsi_feats):
 def generic_handler():      
     clin_feats = extract_clinical_feats() ## user defined function
     radiomic_feats = extract_radiomic_feats() ## user defined function, returns a single vector for the whole case
-    mri_feats = extract_MRI_feats() ## user defined function, returns a single vector for the whole case
     wsi_feats = extract_WSI_feats() ## user defined function, returns a single vector for the whole case
 
-    print(f"Clinical features shape: {clin_feats.shape}")
-    print(f"MRI features shape: {mri_feats.shape}")
-    print(f"Radiomic features shape: {radiomic_feats.shape}")
-    print(f"WSI features shape: {wsi_feats.shape}")
-
-    print(clin_feats[0, 0:10])  # Print first 10 clinical features for debugging
-    print(mri_feats[0, 0:10])  # Print first 10 MRI features for debugging
-    print(radiomic_feats[0, 0:1])  # Print first 10 radiomic features for debugging
-    print(wsi_feats[0, 0:10])  # Print first 10 WSI features for debugging
-
-    output_time_to_biochemical_recurrence_for_prostate_cancer = predict_score(clin_feats, radiomic_feats, mri_feats, wsi_feats)
+    output_time_to_biochemical_recurrence_for_prostate_cancer = predict_score(clin_feats, radiomic_feats, wsi_feats)
 
     print(f"Predicted time: {output_time_to_biochemical_recurrence_for_prostate_cancer}")
 
