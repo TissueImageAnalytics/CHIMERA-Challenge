@@ -79,6 +79,7 @@ COPY --chown=user:user weights_scalers_folder /opt/app/resources/weights_scalers
 # Copy code
 COPY --chown=user:user --chmod=0755 commands.sh /opt/app/
 # COPY --chown=user:user --chmod=0755 task_1_inference.py /opt/app/
+COPY --chown=user:user --chmod=0755 convert_tissue_mask_for_trident.py /opt/app/
 COPY --chown=user:user --chmod=0755 task_1_inference_614.py /opt/app/
 COPY --chown=user:user --chmod=0755 config614.py /opt/app/
 COPY --chown=user:user --chmod=0755 data_utils.py /opt/app/

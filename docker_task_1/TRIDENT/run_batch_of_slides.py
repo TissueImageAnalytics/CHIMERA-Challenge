@@ -278,11 +278,16 @@ def main():
     else:
         # === Sequential mode ===
         processor = initialize_processor(args)
-        tasks = ['seg', 'coords', 'feat'] if args.task == 'all' else [args.task]
+        # tasks = ['seg', 'coords', 'feat'] if args.task == 'all' else [args.task]
+        tasks = ['coords', 'feat'] if args.task == 'all' else [args.task]
+        print(f"[MAIN] Running tasks: {tasks}")
         for task_name in tasks:
             args.task = task_name
             run_task(processor, args)
 
 
 if __name__ == "__main__":
+    start_time = time.time()
     main()
+    end_time = time.time()
+    print(f"[TITAN] Total time: {end_time - start_time:.2f} seconds")
