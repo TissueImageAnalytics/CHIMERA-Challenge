@@ -139,3 +139,17 @@ docker_task_1/virchow/
 docker_task_1/virchow2/
 docker_task_1/biogpt/
 docker_task_1/weights_scalers_folder/
+
+docker_task_3/test/
+docker_task_3/resources/
+docker_task_3/model/
+docker_task_3/*.tar.gz
+docker_task_3/resnet50-0676ba61.pth
+docker_task_3/titan/
+docker_task_3/hest_tissue_seg/
+docker_task_3/task1_submission_clinical/
+docker_task_3/Prism/
+docker_task_3/virchow/
+docker_task_3/virchow2/
+docker_task_3/biogpt/
+docker_task_3/weights_scalers_folder/

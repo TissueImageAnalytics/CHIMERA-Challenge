@@ -35,7 +35,7 @@ cd /opt/app/TRIDENT
 python run_batch_of_slides.py \
     --task all \
     --max_workers 8 \
-    --wsi_dir /input/images/prostatectomy-wsi \
+    --wsi_dir /input/images/prostatectomy-wsi \ 
     --job_dir /output/trident_processed \
     --slide_encoder prism \
     --patch_encoder virchow \
