@@ -275,7 +275,7 @@ class GrandQCSegmenter(SegmentationModel):
 
         model_ckpt_name = 'Tissue_Detection_MPP10.pth'
         encoder_name = 'timm-efficientnet-b0'
-        encoder_weights = 'imagenet'
+        encoder_weights = None
         weights_path = get_weights_path('seg', 'grandqc') 
 
         # Verify that user-provided weights_path is valid
