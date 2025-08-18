@@ -207,7 +207,7 @@ def inference(test_case_ids):
 
             with torch.no_grad():
                 out = model(clinical_feat=clin_tensor, mri_feat=mri_tensor, wsi_feat=wsi_tensor)
-                pmf_all_folds.append(out[0].cpu().numpy())
+                pmf_all_folds.append(out.cpu().numpy())
 
         if not pmf_all_folds:
             raise RuntimeError("No models loaded for ensemble inference.")

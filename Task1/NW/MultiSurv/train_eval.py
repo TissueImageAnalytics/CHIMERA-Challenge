@@ -5,6 +5,7 @@ from torch.utils.data import Dataset
 from sksurv.metrics import concordance_index_censored
 from config import *
 import torch.nn.functional as F
+import random
 
 # ===== Dataset for torch =====
 class SurvivalDataset(Dataset):
@@ -124,6 +125,7 @@ def deephit_loss_uncensored(pred, durations, events, alpha=0.5, time_bins=TIME_B
     N, T = pred.shape
 
     durations = torch.clamp(durations.long(), max=time_bins - 1).to(device)
+    
     events = events.bool().to(device)
     idx = torch.arange(N, device=device)
 
@@ -132,6 +134,18 @@ def deephit_loss_uncensored(pred, durations, events, alpha=0.5, time_bins=TIME_B
     # ----------------------------------
     # Uncensored: log P(event at t)
     p_event = pred[idx, durations]
+
+    if debug:
+        # Check sum of PMF per sample (should be close to 1)
+        pmf_sums = pred.sum(dim=1)
+        if torch.any(pmf_sums < 0.99) or torch.any(pmf_sums > 1.01):
+            print("Warning: PMF sums not close to 1:", pmf_sums)
+
+        # Check for very small event probabilities that cause large loss
+        very_small_probs = p_event < 1e-6
+        if torch.any(very_small_probs):
+            print("Warning: very small predicted event probs causing large loss:", p_event[very_small_probs])
+
     if debug and torch.any(p_event <= 0):
         print("🔴 Invalid event probabilities:", p_event[p_event <= 0])
     uncensored_loss = -safe_log(p_event)
@@ -139,13 +153,22 @@ def deephit_loss_uncensored(pred, durations, events, alpha=0.5, time_bins=TIME_B
 
     # Censored: log(1 - F(t)) ≈ log(1 - CDF)
     cdf = torch.cumsum(pred, dim=1)
-    survival_prob = torch.clamp(1.0 - cdf[idx, durations], min=1e-6)
+    survival_prob = torch.clamp(1.0 - cdf[idx, durations], min=1e-4)
     if debug and torch.any(survival_prob <= 0):
         print("🔴 Invalid survival probabilities:", survival_prob[survival_prob <= 0])
     censored_loss = -safe_log(survival_prob)
     censored_loss = censored_loss[~events]
 
     likelihood_loss = torch.cat([uncensored_loss, censored_loss], dim=0).mean()
+
+    if debug:
+        min_surv = survival_prob.min().item()
+        max_surv = survival_prob.max().item()
+        #print(f"Survival prob min/max: {min_surv:.8f} / {max_surv:.8f}")
+
+    if torch.any(survival_prob == 1e-6):
+        print(f"Some survival probs at clamp minimum")
+
 
     # ----------------------------------
     # Ranking Loss
@@ -174,7 +197,12 @@ def deephit_loss_uncensored(pred, durations, events, alpha=0.5, time_bins=TIME_B
     # Final Combined Loss
     # ----------------------------------
     total_loss = (1 - alpha) * likelihood_loss + alpha * rank_loss
-    return total_loss
+
+    if debug:
+        # Return all three losses for inspection
+        return total_loss, likelihood_loss, rank_loss
+    else:
+        return total_loss
 
 def multimodal_loss(predictions, durations, events, survival_model="cox"):
     """
@@ -222,6 +250,15 @@ def infer_time(model, clin, mri):
         expected_time = torch.sum(out * time_points, dim=1)
         return expected_time
 
+def modality_dropout(clin_feat, mri_feat, wsi_feat, drop_probs=(CLINICAL_DROPOUT, MRI_DROPOUT, WSI_DROPOUT)):
+    if clin_feat is not None and random.random() < drop_probs[0]:
+        clin_feat = torch.zeros_like(clin_feat)
+    if mri_feat is not None and random.random() < drop_probs[1]:
+        mri_feat = torch.zeros_like(mri_feat)
+    if wsi_feat is not None and random.random() < drop_probs[2]:
+        wsi_feat = torch.zeros_like(wsi_feat)
+    return clin_feat, mri_feat, wsi_feat
+
 # ===== Training Loop =====
 def train_one_epoch(model, dataloader, optimizer, survival_model, device):
     model.train()
@@ -238,16 +275,29 @@ def train_one_epoch(model, dataloader, optimizer, survival_model, device):
         )
 
         optimizer.zero_grad()
+        clin, mri, wsi = modality_dropout(clin_feat=clin, mri_feat=mri, wsi_feat=wsi)
         outputs = model(clinical_feat=clin, mri_feat=mri, wsi_feat=wsi)
 
         main_pred = outputs[0]
 
         if survival_model == 'cox':
-            loss = cox_loss(main_pred, duration, event)
+            loss = cox_loss(outputs, duration, event)
         elif survival_model == 'deephit' and DEEPHIT_LOSS == 'uncensored':
-            loss = deephit_loss_uncensored(main_pred, duration, event, debug=True)
+            result = deephit_loss_uncensored(outputs, duration, event, debug=True)
+            if isinstance(result, tuple):
+                loss, likelihood_loss, rank_loss = result
+                #print(f"Loss: {loss.item():.4f} Likelihood: {likelihood_loss.item():.4f} Ranking: {rank_loss.item():.4f}")
+                #print(f"Loss: {loss.item():.4f}")
+            else:
+                loss = result
         elif survival_model == 'deephit' and DEEPHIT_LOSS == 'censored':
-            loss = deephit_loss_censored(main_pred, duration, event, debug=True)
+            result = deephit_loss_censored(outputs, duration, event, debug=True)
+            if isinstance(result, tuple):
+                loss, likelihood_loss, rank_loss = result
+                #print(f"Loss: {loss.item():.4f} Likelihood: {likelihood_loss.item():.4f} Ranking: {rank_loss.item():.4f}")
+                #print(f"Loss: {loss.item():.4f}")
+            else:
+                loss = result
         else:
             raise ValueError(f"Unknown survival model: {survival_model}")
 
@@ -278,16 +328,15 @@ def evaluate(model, dataloader, survival_model, device):
             wsi = wsi.to(device)
             duration = duration.to(device)
             event = event.to(device)
-
+            clin, mri, wsi = modality_dropout(clin_feat=clin, mri_feat=mri, wsi_feat=wsi)
             outputs = model(clinical_feat=clin, mri_feat=mri, wsi_feat=wsi)
-            main_pred = outputs[0]
-
+            
             if survival_model == 'cox':
-                preds = main_pred.squeeze()
+                preds = outputs.squeeze()
             elif survival_model == 'deephit':
-                time_bins = main_pred.shape[1]
+                time_bins = outputs.shape[1]
                 time_range = torch.arange(time_bins).float().to(device)
-                preds = (main_pred * time_range).sum(dim=1)
+                preds = (outputs * time_range).sum(dim=1)
             else:
                 raise ValueError(f"Unknown survival model: {survival_model}")
 

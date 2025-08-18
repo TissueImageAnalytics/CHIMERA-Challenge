@@ -53,6 +53,12 @@ def maybe_scale(name, train_array, val_array, fit=True, run=0, fold=0):
     val_scaled = scaler.transform(val_array) if val_array is not None else None
     return train_scaled, val_scaled
 
+def bin_durations(durations, bin_edges):
+    durations_tensor = torch.tensor(durations, dtype=torch.float32)
+    durations_bin = torch.bucketize(durations_tensor, bin_edges) - 1
+    durations_bin = torch.clamp(durations_bin, 0, len(bin_edges) - 2)
+    return durations_bin.numpy()  # convert back to numpy if needed
+
 def main():
     clinical_df = load_clinical()
     clinical_dim = get_feature_dimensionalities(clinical_df)
@@ -67,6 +73,11 @@ def main():
 
     run_cindices = []
     run_stds = []
+
+    min_time = 5
+    max_time = 250
+    
+    bin_edges = torch.linspace(min_time, max_time, steps=TIME_BINS+1)  # 31 edges for 30 bins
 
     for run_num in range(RUNS):
         val_cindices = []
@@ -122,10 +133,19 @@ def main():
                     train_clin_array = train_radiomic_array
                     val_clin_array = val_radiomic_array
 
-            train_durations = train_clinical['duration'].values
+            train_durations_raw = train_clinical['duration'].values
+            val_durations_raw = val_clinical['duration'].values
+
+            train_durations = bin_durations(train_durations_raw, bin_edges)
+            val_durations = bin_durations(val_durations_raw, bin_edges)
+
             train_events = train_clinical['event'].values
-            val_durations = val_clinical['duration'].values
             val_events = val_clinical['event'].values
+            # Print counts for training events
+            print(f"Train - positives (1): {np.sum(train_events == 1)}, negatives (0): {np.sum(train_events == 0)}")
+
+            # Print counts for validation events
+            print(f"Val   - positives (1): {np.sum(val_events == 1)}, negatives (0): {np.sum(val_events == 0)}")
 
             train_dataset = SurvivalDataset(train_clin_array, train_mri_array, train_wsi_array, train_durations, train_events)
             val_dataset = SurvivalDataset(val_clin_array, val_mri_array, val_wsi_array, val_durations, val_events)
@@ -210,11 +230,10 @@ def main():
         run_cindices.append((run_num, avg_cindex, val_cindices))
         run_stds.append(std_cindex)
 
-    print(f"\n Run: {run_num}=======Modalities===========")
-    print(f"Clinical: {USE_CLINICAL_FEATURES}, MRI_hand: {USE_RADIOMIC_FEATURES}, MRI: {USE_MRI_FEATURES}, WSI: {USE_WSI_FEATURES}")
+    print(f"\n Runs: {RUNS}=======Modalities===========")
+    print(f"Clinical: {USE_CLINICAL_FEATURES}, Radiomic: {USE_RADIOMIC_FEATURES}, MRI: {USE_MRI_FEATURES}, WSI: {USE_WSI_FEATURES}")
     avg_cindices_only = [c[1] for c in run_cindices]  # extract just the average C-index per run
-    print(f"\nRun Average C-index: {round(np.mean(avg_cindices_only), 3)}, C-indices: {avg_cindices_only}")
-
+    
     # Identify best run based on average C-index
     best_run = max(run_cindices, key=lambda x: x[1])  # (run_num, avg_cindex, [fold_cindices])
     best_run_num = best_run[0]
@@ -228,22 +247,22 @@ def main():
     }
     with open(os.path.join(GLOBAL_DIR, "best_run.json"), "w") as f:
         json.dump(best_run_info, f, indent=2)
-
-    print(f"\n Best Run: {best_run_num} | Avg C-index: {best_run[1]:.4f}")
-    print(f"\nRun C-index Stds {run_stds}")
+    
+    print("Folds C-index ± std")
+    formatted = [f"{c:.3f}±{s:.2f}" for c, s in zip(avg_cindices_only, run_stds)]
+    print(", ".join(formatted))
 
     # === Overall standard deviation across all folds in all runs ===
-    avg_cindices_only = [c[1] for c in run_cindices]  # extract just the average C-index per run
     print(f"\nRuns Average C-index: {round(np.mean(avg_cindices_only), 3)} ± {round(np.std(avg_cindices_only), 3)}")
-    print(f"C-indices: {avg_cindices_only}")
+
 
 if __name__ == "__main__":
     os.makedirs(GLOBAL_DIR, exist_ok=True)
     ## Set up the paths in config.py
     ## Extract embeddings using a pretraind model
-    print("\n=== MRI deep features extraction ===")
+    #print("\n=== MRI deep features extraction ===")
     #extract_MRI_features()
-    print("\n=== MRI handcrafted features extraction ===")
+    #print("\n=== MRI handcrafted features extraction ===")
     #extract_radiomic_features()
     
     ## Step 2: Do 5-folds cross-valiation using existing stratified random fold

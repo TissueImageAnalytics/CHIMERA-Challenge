@@ -93,10 +93,10 @@ class CrossAttentionFusion(nn.Module):
         ])
 
     def forward(self, features):
-        B = features[0].size(0)
+        #B = features[0].size(0)
         N = len(features)
 
-        keys_values = torch.stack(features, dim=1)  # [B, N, D]
+        #keys_values = torch.stack(features, dim=1)  # [B, N, D]
         attended = []
 
         for i in range(N):
@@ -124,11 +124,6 @@ class LinearFusion(nn.Module):
 class SimpleConcatFusion(nn.Module):
     def forward(self, features):
         return torch.cat(features, dim=1)
-
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 class GuidedModalityFusion(nn.Module):
     """
@@ -192,23 +187,14 @@ class DeepHitHead(nn.Module):
 # ------------------ Multimodal Model ------------------ #
 
 class MultimodalSurvivalModel(nn.Module):
-    def __init__(self, clin_dim, mri_dim, wsi_dim,
-                 fusion_type='modality',
-                 survival_model='cox',
-                 time_bins=30,
-                 use_aux_heads=False):
+    def __init__(self, clin_dim, mri_dim, wsi_dim, fusion_type='modality', survival_model='cox', time_bins=30):
         super().__init__()
 
-        self.use_aux_heads = use_aux_heads
-        self.survival_model = survival_model
-        self.time_bins = time_bins
-
-        # Projection heads
         self.clinical_proj = ProjectionHead(clin_dim, HIDDEN_DIM) if clin_dim > 0 else None
         self.mri_proj = ProjectionHead(mri_dim, HIDDEN_DIM) if mri_dim > 0 else None
         self.wsi_proj = ProjectionHead(wsi_dim, HIDDEN_DIM) if wsi_dim > 0 else None
 
-        # Input dims for fusion
+        input_dims = []
         input_dims = []
         if self.clinical_proj is not None:
             input_dims.append(HIDDEN_DIM)
@@ -221,64 +207,61 @@ class MultimodalSurvivalModel(nn.Module):
         if fusion_type == 'simple':
             self.fusion = SimpleConcatFusion()
             fusion_dim = sum(input_dims)
-        elif fusion_type == 'modality':
-            self.fusion = ModalityAttentionFusion(input_dims)
-            fusion_dim = HIDDEN_DIM
+
         elif fusion_type == 'linear':
             self.fusion = LinearFusion(input_dims)
             fusion_dim = HIDDEN_DIM
-        elif fusion_type == 'gated_cross':
-            self.fusion = GatedCrossModalFusion(input_dims)
-            fusion_dim = HIDDEN_DIM + HIDDEN_DIM
-        elif fusion_type == 'guided':
-            self.fusion = GuidedModalityFusion(input_dims, hidden_dim=HIDDEN_DIM)
-            fusion_dim = HIDDEN_DIM
+
         elif fusion_type == 'cross_att':
-            self.fusion = CrossAttentionFusion(input_dims)
-            fusion_dim = HIDDEN_DIM
+            if len(input_dims) < 2:
+                # Fallback: no cross-att possible, just use identity or linear
+                print("Error: CrossAttentionFusion requires >= 2 modalities. Please use linear or simple.")
+                exit()
+            else:
+                self.fusion = CrossAttentionFusion(input_dims)
+                fusion_dim = HIDDEN_DIM
+
         else:
             raise ValueError(f"Unknown fusion_type {fusion_type}")
 
-        # Main survival head
+
         if survival_model == 'cox':
             self.head = CoxHead(fusion_dim)
         else:
             self.head = DeepHitHead(fusion_dim, time_bins)
 
-        # Optional auxiliary heads for per-modality prediction
-        if use_aux_heads:
-            self.aux_heads = nn.ModuleList([
-                CoxHead(HIDDEN_DIM) if survival_model == 'cox'
-                else DeepHitHead(HIDDEN_DIM, time_bins)
-                for _ in input_dims
-            ])
-        else:
-            self.aux_heads = None
+        self.survival_model = survival_model
+        self.time_bins = time_bins
 
     def forward(self, clinical_feat=None, mri_feat=None, wsi_feat=None):
         device = next(self.parameters()).device
         features = []
 
-        # Fill missing modalities with zeros
+        B = None
+
         if self.clinical_proj is not None:
-            clinical_feat = torch.zeros(1, self.clinical_proj.proj[0].in_features, device=device) if clinical_feat is None else clinical_feat.to(device)
+            if clinical_feat is None:
+                B = mri_feat.size(0) if mri_feat is not None else 1
+                clinical_feat = torch.zeros(B, self.clinical_proj.proj[0].in_features, device=device)
+            else:
+                clinical_feat = clinical_feat.to(device)
             features.append(self.clinical_proj(clinical_feat))
 
         if self.mri_proj is not None:
-            mri_feat = torch.zeros(clinical_feat.size(0), self.mri_proj.proj[0].in_features, device=device) if mri_feat is None else mri_feat.to(device)
+            if mri_feat is None:
+                B = clinical_feat.size(0) if clinical_feat is not None else 1
+                mri_feat = torch.zeros(B, self.mri_proj.proj[0].in_features, device=device)
+            else:
+                mri_feat = mri_feat.to(device)
             features.append(self.mri_proj(mri_feat))
 
         if self.wsi_proj is not None:
-            wsi_feat = torch.zeros(clinical_feat.size(0), self.wsi_proj.proj[0].in_features, device=device) if wsi_feat is None else wsi_feat.to(device)
+            if wsi_feat is None:
+                B = clinical_feat.size(0) if clinical_feat is not None else 1
+                wsi_feat = torch.zeros(B, self.wsi_proj.proj[0].in_features, device=device)
+            else:
+                wsi_feat = wsi_feat.to(device)
             features.append(self.wsi_proj(wsi_feat))
 
-        # Fusion
         fused = self.fusion(features)
-        out = self.head(fused)
-
-        # Auxiliary predictions (if enabled)
-        aux_outs = None
-        if self.use_aux_heads:
-            aux_outs = [head(f) for head, f in zip(self.aux_heads, features)]
-
-        return out, aux_outs
+        return self.head(fused)
