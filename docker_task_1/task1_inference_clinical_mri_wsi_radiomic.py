@@ -12,14 +12,13 @@ from collections import OrderedDict, defaultdict
 import SimpleITK as sitk
 from sklearn.preprocessing import StandardScaler
 from skimage.transform import resize
-from tiatoolbox.wsicore.wsireader import WSIReader
 import joblib
 
 from data_utils import convert_mixed_column_to_numeric
 from config import *
 import resnet
 from model import MultimodalSurvivalModel
-
+import h5py
 
 ## ==========User defined functions=============== ##
 ## Changes to the inference.py, assuming this will be the entry point
@@ -27,9 +26,9 @@ from model import MultimodalSurvivalModel
 INPUT_PATH = Path("/input")
 OUTPUT_PATH = Path("/output")
 RESOURCE_PATH = Path("resources")
-MODEL_DIR = Path("/opt/ml/model")
-MRI_WEIGHTS_PATH = Path() ### TODO
-SURVIVAL_WEIGHTS_PATH = Path() ### TODO
+MRI_WEIGHTS_PATH = Path("/opt/app/resources/weights_scalers_folder/resnet_50_23dataset.pth")
+SURVIVAL_WEIGHTS_PATH = Path("/opt/app/resources/weights_scalers_folder")
+SCALER_WEIGHTS_PATH = Path("/opt/app/resources/weights_scalers_folder")
 
 
 def write_json_file(*, location, content):
@@ -38,8 +37,8 @@ def write_json_file(*, location, content):
         f.write(json.dumps(content, indent=4))
 
 def get_or_fit_scaler(name, train_array, fit=True, fold=0):
-    os.makedirs(GLOBAL_DIR, exist_ok=True)
-    scaler_path = os.path.join(GLOBAL_DIR, f"{name}_scaler_{fold}.pkl")
+    os.makedirs(SCALER_WEIGHTS_PATH, exist_ok=True)
+    scaler_path = os.path.join(SCALER_WEIGHTS_PATH, f"{name}_scaler_{fold}.pkl")
     
     if fit:
         scaler = StandardScaler()
@@ -47,6 +46,8 @@ def get_or_fit_scaler(name, train_array, fit=True, fold=0):
         joblib.dump(scaler, scaler_path)
     else:
         scaler = joblib.load(scaler_path)
+        print(f"scaler name: {name}, fold: {fold}")
+        print(f"scaler mean: {scaler.mean_}, std: {scaler.scale_}")
 
     return scaler
 
@@ -167,8 +168,12 @@ def extract_clinical_feats():
     if df[CLINICAL_FEATURES].isnull().any().any():
         # raise ValueError("Missing or invalid clinical feature(s) in JSON input")
         df[CLINICAL_FEATURES] = df[CLINICAL_FEATURES].fillna(0)
- 
-    return df.values.astype(np.float32)
+
+    print("Clinical features extracted.")
+
+    clinical_feats = df.values.astype(np.float32)
+
+    return clinical_feats
 
 
 def extract_MRI_feats():
@@ -209,6 +214,11 @@ def extract_MRI_feats():
     model = load_medicalnet_resnet50(MRI_WEIGHTS_PATH, device)
     feat = extract_features_from_volume(img_array, model, device)
 
+    if feat.ndim == 1:
+        feat = feat.reshape(1, -1)
+
+    print("MRI features extracted.")
+
     return feat
 
 
@@ -234,7 +244,14 @@ def extract_radiomic_feats():
     mask_array = sitk.GetArrayFromImage(mask_img)
     total_volume = float(np.sum(mask_array > 0) * voxel_volume)  
 
-    return np.array([total_volume])
+    print("Radiomic features extracted.")
+
+    total_volume = np.array([total_volume], dtype=np.float32)  # Convert to numpy array
+    # Convert to [1,1] shape for consistency
+    if total_volume.ndim == 1:
+        total_volume = total_volume.reshape(1, 1)
+
+    return total_volume
 
 
 def extract_WSI_feats():
@@ -250,9 +267,9 @@ def extract_WSI_feats():
     wsi_path = wsi_path_list[0]
     pprint(f"Selected WSI: {wsi_path}")
 
-    reader = WSIReader.open(wsi_path)
+    # reader = WSIReader.open(wsi_path)
 
-    pprint(reader.info.as_dict())
+    # pprint(reader.info.as_dict())
     # command = [
     #     "python", "run_batch_of_slides.py",
     #     "--task", "all",
@@ -270,13 +287,26 @@ def extract_WSI_feats():
     # TRIDENT Features
     try:
         trident_dir = OUTPUT_PATH / "trident_processed"
-        trident_slide_features_titan_dir = trident_dir / "10x_1024px_0px_overlap" / "slide_features_titan"
+        trident_slide_features_titan_dir = trident_dir / "10x_896px_0px_overlap" / "slide_features_prism"
         print(f"TRIDENT slide features directory: {trident_slide_features_titan_dir}")
         print(os.listdir(trident_slide_features_titan_dir))
+        wsi_features_list = glob(str(trident_slide_features_titan_dir / "*.h5"))
+        wsi_feature_path = wsi_features_list[0]
+        with h5py.File(wsi_feature_path, 'r') as f:
+            features = f['features'][()]
+            features = torch.tensor(features, dtype=torch.float32)
+
+        print("WSI features extracted.")
+
+        if features.ndim == 1:
+            features = features.reshape(1, -1)
+
+        return features
+
     except Exception as e:
         print(f"Error occurred while reading TRIDENT features: {e}")
 
-    return None
+        return torch.zeros((1,768), dtype=torch.float32)  # Default to zero vector if error occurs
 
 
 ## ==========Challenge functions=============== ##
@@ -296,20 +326,12 @@ def predict_score(clinical_feats, radiomic_feats, mri_feats, wsi_feats):
     Returns:
         float: Predicted score.
     """
-    # model = Test_Model(
-    #     clin_dim=6,
-    #     mri_dim=2048,
-    #     wsi_dim=768
-    # )
-    # state_dict = torch.load(MODEL_DIR / "model_wts.pt", map_location='cpu')
-    # model.load_state_dict(state_dict)
-
-    # score = model(clin_feats, mri_feats, wsi_feats)
 
     ### Combine radiomic and clinical features
     c_dim = 10
     m_dim = 2048
-    w_dim = 768 # For TITAN!
+    # w_dim = 768 # For TITAN!
+    w_dim = 1280  # For PRISM!
     r_dim = 1
 
     if radiomic_feats is not None:
@@ -337,6 +359,9 @@ def predict_score(clinical_feats, radiomic_feats, mri_feats, wsi_feats):
                 print(f"[Warning] Model missing for fold {fold_idx}: {model_path}")
                 continue
 
+            print(f"MRI before scaling: {mri_feats[0, 0:10]}")
+            print(mri_feats.shape, clinical_feats.shape, wsi_feats.shape)
+
             fold_clin_array, _ = maybe_scale("clinical", clinical_feats, clinical_feats, fit=False, fold=fold_idx) if USE_CLINICAL_FEATURES else (None, None)
             fold_mri_array, _ = maybe_scale("mri", mri_feats, mri_feats, fit=False, fold=fold_idx) if USE_MRI_FEATURES else (None, None)
             fold_wsi_array, _ = maybe_scale("wsi", wsi_feats, wsi_feats, fit=False, fold=fold_idx) if USE_WSI_FEATURES else (None, None)
@@ -352,6 +377,11 @@ def predict_score(clinical_feats, radiomic_feats, mri_feats, wsi_feats):
             mri_tensor = torch.tensor(fold_mri_array, dtype=torch.float32).to(device) if fold_mri_array is not None else torch.zeros((1, m_dim), device=device)
             wsi_tensor = torch.tensor(fold_wsi_array, dtype=torch.float32).to(device) if fold_wsi_array is not None else torch.zeros((1, w_dim), device=device)
 
+            print("Fold:", fold_idx)
+            print("clinical:", clin_tensor[0, 0:10])  # Print first 10 clinical features for debugging
+            print("MRI:", mri_tensor[0, 0:10])  # Print first 10 MRI features for debugging
+            print("WSI:", wsi_tensor[0, 0:10])  # Print first 10 WSI features for debugging
+
             model.load_state_dict(torch.load(model_path, map_location=device))
             model.eval()
 
@@ -361,6 +391,7 @@ def predict_score(clinical_feats, radiomic_feats, mri_feats, wsi_feats):
 
         if not pmf_all_folds:
             raise RuntimeError("No models loaded for ensemble inference.")
+
 
         avg_pmf = np.mean(pmf_all_folds, axis=0)
 
@@ -383,7 +414,19 @@ def generic_handler():
     mri_feats = extract_MRI_feats() ## user defined function, returns a single vector for the whole case
     wsi_feats = extract_WSI_feats() ## user defined function, returns a single vector for the whole case
 
+    print(f"Clinical features shape: {clin_feats.shape}")
+    print(f"MRI features shape: {mri_feats.shape}")
+    print(f"Radiomic features shape: {radiomic_feats.shape}")
+    print(f"WSI features shape: {wsi_feats.shape}")
+
+    print(clin_feats[0, 0:10])  # Print first 10 clinical features for debugging
+    print(mri_feats[0, 0:10])  # Print first 10 MRI features for debugging
+    print(radiomic_feats[0, 0:1])  # Print first 10 radiomic features for debugging
+    print(wsi_feats[0, 0:10])  # Print first 10 WSI features for debugging
+
     output_time_to_biochemical_recurrence_for_prostate_cancer = predict_score(clin_feats, radiomic_feats, mri_feats, wsi_feats)
+
+    print(f"Predicted time: {output_time_to_biochemical_recurrence_for_prostate_cancer}")
 
     write_json_file(
         location=OUTPUT_PATH
