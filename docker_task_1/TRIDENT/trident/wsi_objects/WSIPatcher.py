@@ -87,6 +87,14 @@ class WSIPatcher:
             self.valid_patches_nb, self.valid_coords = self._compute_masked(coords, threshold)
         else:
             self.valid_patches_nb, self.valid_coords = len(coords), coords
+
+        N = 500
+        print(f"Found {self.valid_patches_nb} valid patches")
+        if len(self.valid_coords) > N:
+            print("Sampling 500 random patches")
+            chosen_idx = np.random.choice(len(self.valid_coords), size=N, replace=False)
+            self.valid_coords = self.valid_coords[chosen_idx]
+            self.valid_patches_nb = len(self.valid_coords)
             
     def _colrow_to_xy(self, col, row):
         """ Convert col row of a tile to its top-left coordinates before rescaling (x, y) """

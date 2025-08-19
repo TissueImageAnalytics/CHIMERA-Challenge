@@ -1,5 +1,5 @@
 {
     "hest": "/opt/app/hest_tissue_seg/deeplabv3_seg_v4.ckpt",
-    "grandqc": "",
+    "grandqc": "/opt/app/hest_tissue_seg/Tissue_Detection_MPP10.pth",
     "grandqc_artifact": ""
 }
