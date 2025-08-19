@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from config114 import *
+from config_clinical import *
 
 class ProjectionHead(nn.Module):
     def __init__(self, in_dim, out_dim):
