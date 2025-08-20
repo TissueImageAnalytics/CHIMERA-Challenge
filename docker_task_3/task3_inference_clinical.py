@@ -124,7 +124,7 @@ def inference():
     model.to(device)
 
 
-    best_run = 2
+    best_run = 4
 
     if USE_ENSEMBLE:
         pmf_all_folds = []
@@ -178,8 +178,7 @@ def write_json_file(*, location, content):
 
 def generic_handler():      
 
-    # output_likelihood_of_bladder_cancer_recurrence = inference()
-    output_likelihood_of_bladder_cancer_recurrence = 1.0
+    output_likelihood_of_bladder_cancer_recurrence = inference()
 
     print(f"Predicted score: {output_likelihood_of_bladder_cancer_recurrence}")
 
