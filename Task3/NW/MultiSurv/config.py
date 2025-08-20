@@ -7,6 +7,8 @@ RUNS = 10 ## number of times to run the 5-folds cross-validation
 
 # === Base line Cox PH model === ## for cox_baseline.py only
 COX_BASELINE_DIR = f"/home/u1970167/chimera/task{TASK}/experiments/results/Cox_baseline/"
+PENALIZER=0.3
+L1_RATIO=0.5
 
 # === Data paths ===
 CLINICAL_CSV = f"/home/u1970167/chimera/task{TASK}/clinical/features/task{TASK}_clinical.csv"        # Clinical features CSV with Case_ID column
@@ -49,7 +51,7 @@ CLINICAL_DROPOUT=0.2
 RNA_DROPOUT = 0.2
 WSI_DROPOUT= 0.7
 
-SURVIVAL_MODEL = 'deephit'  # Options: 'cox' or 'deephit'
+SURVIVAL_MODEL = 'cox'  # Options: 'cox' or 'deephit'
 FUSION_TYPE = 'linear'  # Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params),  'cross_att' (AS cross attention fusion)
 DEEPHIT_LOSS = 'uncensored' # 'censored' or 'uncensored'. 'censored' has a extra term for accounting for censored data whereas 'uncensored' only considers uncensored cases
 TIME_BINS = 30  # Only for deephit
@@ -82,12 +84,15 @@ VERBOSE = True
 # === Inference ===
 # === Inference ===
 USE_ENSEMBLE = True  # True means ensemble the results of the best models from the 5 folds across the N runs. False means use the best of the 5 folds across the N runs. Currently, only ENSEMBLE is implemented so do not set to False
-INFER_LOCAL = True ## True means: use the features in the form of csv files rather than Challenge expected json (for clinical), wsi_path (for WSIs) and mri_path (for MRI files);
-                   ## False means: Challenge expected json (for clinical), wsi_path (for WSIs) and mri_path (for MRI files); This is currenly only implemented for clinical features.
-                   ## To verify the local code works the same in the docker container, compare scores for 1 or 2 cases. the scores are saved to the results folder to a csv file _train_predictions.csv
+# INFER_LOCAL = True ## True means: use the features in the form of csv files rather than Challenge expected json (for clinical), wsi_path (for WSIs) and mri_path (for MRI files);
+#                    ## False means: Challenge expected json (for clinical), wsi_path (for WSIs) and mri_path (for MRI files); This is currenly only implemented for clinical features.
+#                    ## To verify the local code works the same in the docker container, compare scores for 1 or 2 cases. the scores are saved to the results folder to a csv file _train_predictions.csv
 INFER_SINGLE = False ## True means: print score for a single file using the Challenge expected interface i.e. using paths to the files for a single case to generate score for a single case.
                     ## Note: the INFER_SINGLE will not produce c-index but only print the score of the first case from the csv file CLINICAL_CSV
 
-#GLOBAL_DIR = f"{OUTPUT_DIR}clinic_{USE_CLINICAL_FEATURES}_rna_{USE_RNA_FEATURES}_wsi_{USE_WSI_FEATURES}_embedder_{EMBEDDER}_model_{SURVIVAL_MODEL}_fusion_{FUSION_TYPE}_scale_{SCALE_DATA}_epochs_{EPOCHS}/" ## main path for results
+if SURVIVAL_MODEL == 'cox':
+    GLOBAL_DIR = f"{OUTPUT_DIR}clinic_{USE_CLINICAL_FEATURES}_rna_{USE_RNA_FEATURES}_wsi_{USE_WSI_FEATURES}_model_CoxPH/"
+else:
+    GLOBAL_DIR = f"{OUTPUT_DIR}clinic_{USE_CLINICAL_FEATURES}_rna_{USE_RNA_FEATURES}_wsi_{USE_WSI_FEATURES}_embedder_{EMBEDDER}_model_{SURVIVAL_MODEL}_fusion_{FUSION_TYPE}_scale_{SCALE_DATA}_epochs_{EPOCHS}/" ## main path for results
 #GLOBAL_DIR = f"{OUTPUT_DIR}task3_submission1_clin_wsi_xatt_modDrop"
-GLOBAL_DIR = f"{OUTPUT_DIR}task3_submission1_clin"
+#GLOBAL_DIR = f"{OUTPUT_DIR}task3_submission1_clin"

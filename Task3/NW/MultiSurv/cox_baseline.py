@@ -3,10 +3,12 @@ import pickle
 import pandas as pd
 import numpy as np
 from lifelines import CoxPHFitter
-from lifelines.utils import concordance_index
+#from lifelines.utils import concordance_index
 from sklearn.preprocessing import StandardScaler
-from utils.data_utils import load_clinical, load_folds
+from utils.data_utils import load_clinical, load_folds, encode_clinical_features
 from config import *
+from sksurv.metrics import concordance_index_censored
+import json
 
 os.makedirs(COX_BASELINE_DIR, exist_ok=True)
 
@@ -71,14 +73,11 @@ def train_cv_cox_model(df, feature_cols, fold_indices):
             feature_cols = [col for col in feature_cols if col not in constant_cols]
 
         # Fit Cox model
-        cph = CoxPHFitter()
-        try:
-            cph.fit(train_df, duration_col='duration', event_col='event')
-        except Exception as e:
-            print(f" Failed to fit Cox model on Fold {fold + 1}: {e}")
-            c_indices.append(np.nan)
-            continue
-
+        #cph = CoxPHFitter()
+        cph = CoxPHFitter(penalizer=PENALIZER, l1_ratio=L1_RATIO)
+        
+        cph.fit(train_df, duration_col='duration', event_col='event')
+        
         # Save model and scaler
         model_path = os.path.join(COX_BASELINE_DIR, f"cox_model_fold{fold+1}.pkl")
         scaler_path = os.path.join(COX_BASELINE_DIR, f"scaler_fold{fold+1}.pkl")
@@ -89,17 +88,17 @@ def train_cv_cox_model(df, feature_cols, fold_indices):
                 pickle.dump(scaler, f)
 
         # Evaluate on validation
-        try:
-            partial_hazards = cph.predict_partial_hazard(val_df)
-            c_index = concordance_index(val_df['duration'], -partial_hazards, val_df['event'])
-        except Exception as e:
-            print(f" Failed to compute C-index on Fold {fold + 1}: {e}")
-            c_index = np.nan
+        partial_hazards = cph.predict_partial_hazard(val_df)
+        
+        durations = val_df['duration'].values
+        events = val_df['event'].values
 
-        c_indices.append(c_index)
+        c_index = concordance_index_censored(events.astype(bool), durations, partial_hazards)
+        
+        c_indices.append(c_index[0])
 
         if VERBOSE:
-            print(f" Fold {fold + 1} C-index: {c_index:.3f}")
+            print(f" Fold {fold + 1} C-index: {c_index[0]:.3f}")
 
     # Summarize results
     valid_c_indices = [x for x in c_indices if not pd.isna(x)]
@@ -118,10 +117,34 @@ def train_cv_cox_model(df, feature_cols, fold_indices):
 
     return c_indices, avg_cindex
 
-def inference_ensemble(df, feature_cols, fold_count=NUM_FOLDS):
+def extract_clinical_vector(jsdata):
+    """
+    Accepts a single JSON dict with clinical data.
+    Encodes categorical variables using same mappings as training,
+    handles numeric/mixed columns, and returns (1, num_features) float32 array.
+    """
+
+    # Convert JSON into DataFrame
+    df = pd.DataFrame([jsdata], columns=CLINICAL_FEATURES)
+
+    # Apply categorical encoding
+    df_encoded = encode_clinical_features(df)
+
+    # Ensure all values are numeric
+    df_encoded = df_encoded.apply(pd.to_numeric, errors='coerce')
+
+    # Check for missing values
+    if df_encoded.isnull().any().any():
+        missing_cols = df_encoded.columns[df_encoded.isnull().any()].tolist()
+        raise ValueError(f"Missing or invalid clinical feature(s) in JSON input: {missing_cols}")
+
+    return df_encoded.values.astype(np.float32)
+
+def inference_ensemble(df, fold_count=NUM_FOLDS):
     """
     Perform inference using ensemble of saved Cox models.
     Aligns input features per fold with what was used during training.
+    Saves predictions against Case_IDs in a CSV file.
     """
     partial_hazards_list = []
 
@@ -136,7 +159,16 @@ def inference_ensemble(df, feature_cols, fold_count=NUM_FOLDS):
             cph = pickle.load(f)
         fold_features = cph.params_.index.tolist()  # Features used during model training
 
-        X = df[fold_features].copy()
+        if INFER_SINGLE:
+            test_case = os.listdir(CLINICAL_JSON_DIR)[0]
+            input_chimera_clinical_data_of_prostate_cancer_patients = f"{CLINICAL_JSON_DIR}/{test_case}/{test_case}_CD.json"
+            with open(input_chimera_clinical_data_of_prostate_cancer_patients, "r") as f:
+                jsdata = json.load(f)
+
+            X_array = extract_clinical_vector(jsdata)
+            X = pd.DataFrame(X_array, columns=CLINICAL_FEATURES)
+        else:
+            X = df[fold_features].copy()
 
         if SCALE_DATA and os.path.exists(scaler_path):
             with open(scaler_path, 'rb') as f:
@@ -161,7 +193,7 @@ def inference_ensemble(df, feature_cols, fold_count=NUM_FOLDS):
             X_scaled = pd.DataFrame(
                 scaler.transform(X),
                 columns=expected_features,
-                index=df.index
+                #index=df.index
             )
         else:
             X_scaled = X
@@ -172,10 +204,37 @@ def inference_ensemble(df, feature_cols, fold_count=NUM_FOLDS):
     # Ensemble: average of all predicted partial hazards
     ensemble_partial_hazard = pd.concat(partial_hazards_list, axis=1).mean(axis=1)
 
-    c_index = concordance_index(df['duration'], -ensemble_partial_hazard, df['event'])
-    print(f"\n Ensemble Inference C-index: {c_index:.3f}")
+    ## to test with a single json clinical file
+    if INFER_SINGLE:
+        print(f"Score for case {test_case}:  {ensemble_partial_hazard}")
+        exit()
 
-    return c_index
+    os.makedirs(COX_BASELINE_DIR, exist_ok=True)
+
+    # Save Case_ID with predictions
+    output_df = pd.DataFrame({
+        'Case_ID': df['Case_ID'].values,
+        'Predicted_Risk': ensemble_partial_hazard.values
+    })
+
+    # Higher risk means worse prognosis → sort descending
+    output_df = output_df.sort_values(by="Predicted_Risk", ascending=False)
+
+    save_path = os.path.join(COX_BASELINE_DIR, "ensemble_predictions.csv")
+    output_df.to_csv(save_path, index=False)
+
+    print(f"Inference predictions saved to: {save_path}")
+
+    # Compute C-index (requires survival data)
+    if 'duration' in df.columns and 'event' in df.columns:
+        durations = df['duration'].values
+        events = df['event'].values
+        c_index = concordance_index_censored(events.astype(bool), durations, ensemble_partial_hazard)
+        print(f"\n Ensemble Inference C-index: {c_index[0]:.3f}")
+        return c_index[0]
+    else:
+        print("\n No duration/event columns found. Skipping C-index calculation.")
+        return None
 
 def main(mode="train"):
     """
@@ -188,12 +247,12 @@ def main(mode="train"):
 
     elif mode == "inference":
         print("Starting inference using ensemble of 5 folds on entire dataset...")
-        inference_ensemble(clinical_df, CLINICAL_FEATURES, fold_count=len(fold_indices))
+        inference_ensemble(clinical_df, fold_count=len(fold_indices))
 
     else:
         raise ValueError("Invalid mode! Use 'train' or 'inference'.")
 
 if __name__ == "__main__":
-    mode = 'train' # 'train' | 'inference'
+    mode = 'inference' # 'train' | 'inference'
     
     main(mode)
