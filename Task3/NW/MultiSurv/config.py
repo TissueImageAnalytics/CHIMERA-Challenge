@@ -42,7 +42,7 @@ CLINICAL_FEATURES = ['age', 'sex', 'tumor', 'stage', 'grade', 'reTUR', 'variant'
 # === Experiment settings ===
 USE_CLINICAL_FEATURES = True
 USE_RNA_FEATURES = False
-USE_WSI_FEATURES = True
+USE_WSI_FEATURES = False
 
 # modality drop out during training
 CLINICAL_DROPOUT=0.2
@@ -50,7 +50,7 @@ RNA_DROPOUT = 0.2
 WSI_DROPOUT= 0.7
 
 SURVIVAL_MODEL = 'deephit'  # Options: 'cox' or 'deephit'
-FUSION_TYPE = 'cross_att'  # Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params),  'cross_att' (AS cross attention fusion)
+FUSION_TYPE = 'linear'  # Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params),  'cross_att' (AS cross attention fusion)
 DEEPHIT_LOSS = 'uncensored' # 'censored' or 'uncensored'. 'censored' has a extra term for accounting for censored data whereas 'uncensored' only considers uncensored cases
 TIME_BINS = 30  # Only for deephit
 NUM_FOLDS = 5
@@ -70,7 +70,7 @@ CLINICAL_DIM = len(CLINICAL_FEATURES)
 AGGREG_CASE_WSI = False ## False: just select the first WSI in alphabetical order for reproducibility in cross-validations. True: mean aggregates the multiple WSIs per case.
 
 # === Training settings ===
-EPOCHS = 102
+EPOCHS = 105
 LR = 1e-3
 WD = 1e-4
 BATCH_SIZE = 16
@@ -89,4 +89,5 @@ INFER_SINGLE = False ## True means: print score for a single file using the Chal
                     ## Note: the INFER_SINGLE will not produce c-index but only print the score of the first case from the csv file CLINICAL_CSV
 
 #GLOBAL_DIR = f"{OUTPUT_DIR}clinic_{USE_CLINICAL_FEATURES}_rna_{USE_RNA_FEATURES}_wsi_{USE_WSI_FEATURES}_embedder_{EMBEDDER}_model_{SURVIVAL_MODEL}_fusion_{FUSION_TYPE}_scale_{SCALE_DATA}_epochs_{EPOCHS}/" ## main path for results
-GLOBAL_DIR = f"{OUTPUT_DIR}task3_submission1_clin_wsi_xatt_modDrop"
+#GLOBAL_DIR = f"{OUTPUT_DIR}task3_submission1_clin_wsi_xatt_modDrop"
+GLOBAL_DIR = f"{OUTPUT_DIR}task3_submission1_clin"

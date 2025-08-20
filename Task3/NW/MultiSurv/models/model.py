@@ -133,8 +133,13 @@ class MultimodalSurvivalModel(nn.Module):
             self.fusion = LinearFusion(input_dims)
             fusion_dim = HIDDEN_DIM
         elif fusion_type == 'cross_att':
-            self.fusion = CrossAttentionFusion(input_dims)
-            fusion_dim = HIDDEN_DIM
+            if len(input_dims) < 2:
+                # Fallback: no cross-att possible, just use identity or linear
+                print("Error: CrossAttentionFusion requires >= 2 modalities. Please use linear or simple.")
+                exit()
+            else:
+                self.fusion = CrossAttentionFusion(input_dims)
+                fusion_dim = HIDDEN_DIM
         elif fusion_type == 'gated':
             # instance-wise learned gates per modality
             self.fusion = GatedModalityFusion(input_dims)

@@ -6,7 +6,7 @@ from sklearn.model_selection import StratifiedKFold
 import glob
 
 import re
-from config import * #CLINICAL_CSV, EVENT_COLUMN, TIME_COLUMN, CLINICAL_FEATURES, FOLDS_CSV
+from config import *
 
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder

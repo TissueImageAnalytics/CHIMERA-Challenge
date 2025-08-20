@@ -81,11 +81,11 @@ def maybe_reduce_rna(train_rna, val_rna, train_ids, val_ids, fit=True, fold=0):
 
     return train_rna, val_rna
 
-def bin_durations(durations, bin_edges):
-    durations_tensor = torch.tensor(durations, dtype=torch.float32)
-    durations_bin = torch.bucketize(durations_tensor, bin_edges) - 1
-    durations_bin = torch.clamp(durations_bin, 0, len(bin_edges) - 2)
-    return durations_bin.numpy()  # convert back to numpy if needed
+# def bin_durations(durations, bin_edges):
+#     durations_tensor = torch.tensor(durations, dtype=torch.float32)
+#     durations_bin = torch.bucketize(durations_tensor, bin_edges) - 1
+#     durations_bin = torch.clamp(durations_bin, 0, len(bin_edges) - 2)
+#     return durations_bin.numpy()  # convert back to numpy if needed
 
 def main():
     clinical_df = load_clinical()
@@ -104,7 +104,7 @@ def main():
     min_time = 5
     max_time = 250
     
-    bin_edges = torch.linspace(min_time, max_time, steps=TIME_BINS+1)  # 31 edges for 30 bins
+    #bin_edges = torch.linspace(min_time, max_time, steps=TIME_BINS+1)  # 31 edges for 30 bins
     
     for run_num in range(RUNS):
         val_cindices = []
@@ -161,11 +161,13 @@ def main():
                     train_wsi_array, val_wsi_array = maybe_scale("wsi", train_wsi_array, val_wsi_array, fit=True, run=run_num, fold=fold_idx)
 
             #train_durations = train_clinical['duration'].values
-            train_durations_raw = train_clinical['duration'].values
-            val_durations_raw = val_clinical['duration'].values
+            #train_durations_raw = train_clinical['duration'].values
+            #val_durations_raw = val_clinical['duration'].values
+            train_durations = train_clinical['duration'].values
+            val_durations = val_clinical['duration'].values
 
-            train_durations = bin_durations(train_durations_raw, bin_edges)
-            val_durations = bin_durations(val_durations_raw, bin_edges)
+            #train_durations = bin_durations(train_durations_raw, bin_edges)
+            #val_durations = bin_durations(val_durations_raw, bin_edges)
 
             train_events = train_clinical['event'].values
             #val_durations = val_clinical['duration'].values
@@ -274,5 +276,5 @@ def main():
 
 if __name__ == "__main__":
     os.makedirs(GLOBAL_DIR, exist_ok=True)
-    print(f"\n=== Step 2: {NUM_FOLDS}-folds cross ===")
+    print(f"\n=== Step 2: {NUM_FOLDS}-folds cross validation===")
     main()

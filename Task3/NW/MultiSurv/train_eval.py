@@ -267,7 +267,13 @@ def train_one_epoch(model, dataloader, optimizer, survival_model, device):
             else:
                 loss = result
         elif survival_model == 'deephit' and DEEPHIT_LOSS == 'censored':
-            loss = deephit_loss_censored(outputs, duration, event, debug=True)
+            result = deephit_loss_censored(outputs, duration, event, debug=True)
+            if isinstance(result, tuple):
+                loss, likelihood_loss, rank_loss = result
+                #print(f"Loss: {loss.item():.4f} Likelihood: {likelihood_loss.item():.4f} Ranking: {rank_loss.item():.4f}")
+                #print(f"Loss: {loss.item():.4f}")
+            else:
+                loss = result
         else:
             raise ValueError(f"Unknown survival model: {survival_model}")
 
