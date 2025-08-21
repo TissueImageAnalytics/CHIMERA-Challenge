@@ -42,21 +42,21 @@ fi
 # python convert_tissue_mask_for_trident.py
 # echo "Finished convert_tissue_mask_for_trident.py"
 
-# echo "Running TITAN"
-# cd /opt/app/TRIDENT
+echo "Running TITAN"
+cd /opt/app/TRIDENT
 
-# python run_batch_of_slides.py \
-#   --task all \
-#   --max_workers 8 \
-#   --wsi_dir /input/images/prostatectomy-wsi \
-#   --job_dir /output/trident_processed \
-#   --segmenter grandqc \
-#   --slide_encoder titan \
-#   --patch_encoder conch_v15 \
-#   --patch_encoder_ckpt /home/user/.cache/huggingface/modules/transformers_modules/titan/conch_v1_5_pytorch_model.bin \
-#   --mag 10 \
-#   --patch_size 1024 \
-#   --batch_size 32
+python run_batch_of_slides.py \
+  --task all \
+  --max_workers 8 \
+  --wsi_dir /input/images/prostatectomy-wsi \
+  --job_dir /output/trident_processed \
+  --segmenter grandqc \
+  --slide_encoder titan \
+  --patch_encoder conch_v15 \
+  --patch_encoder_ckpt /home/user/.cache/huggingface/modules/transformers_modules/titan/conch_v1_5_pytorch_model.bin \
+  --mag 10 \
+  --patch_size 1024 \
+  --batch_size 32
 
 # echo "TITAN finished OK"
 
@@ -78,6 +78,14 @@ fi
 # echo running task_1_inference_template.py
 cd /opt/app
 
-echo running clinical_only_inference.py
-exec python clinical_only_inference.py
-echo finished
+# echo running clinical_only_inference.py
+# exec python clinical_only_inference.py
+# echo finished
+
+echo running TSR_inference.py
+exec python TSR_inference.py \
+  --fold 3 \
+  --run 0 \
+  --task 1 \
+  --wsi_csv Features/Task1_Titan_10x_1024_grandqc_MaxPatch_embeddings.csv \
+  --clinical_csv Features/task1_clinical.csv \
