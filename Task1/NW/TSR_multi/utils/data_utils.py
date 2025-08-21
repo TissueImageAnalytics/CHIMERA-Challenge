@@ -2,26 +2,33 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold
-from config import *
-import glob
-
+from sklearn.preprocessing import StandardScaler
 import re
-from config import MIXED_COLS, CLINICAL_CSV, EVENT_COLUMN, TIME_COLUMN, CLINICAL_FEATURES
+from config import *
+import joblib
+import glob
+import torch
 
-def convert_mixed_column_to_numeric(series):
-    def parse_value(val):
-        match = re.match(r"(\d+)([a-zA-Z]*)", str(val))
-        if match:
-            base = int(match.group(1))
-            suffix = match.group(2)
-            if suffix:
-                suffix_value = (ord(suffix.lower()) - ord('a') + 1) / 10
-                return base + suffix_value
-            else:
-                return float(base)
-        return None  # Or np.nan if you want to filter it later
+def encode_clinical_features(df: pd.DataFrame) -> pd.DataFrame:
+    mappings = {
+        "sex": {"Male": 0, "Female": 1},
+        "tumor": {"Primary": 0},
+        "stage": {"T1HG": 1, "TaHG": 0},
+        "grade": {"G2": 2, "G3": 3},
+        "reTUR": {"No": 0, "Yes": 1},
+        "variant": {"UCC": 0, "UCC + Variant": 1},
+        "EORTC": {"High risk": 0, "Highest risk": 1},
+        "BRS": {"BRS1": 1, "BRS2": 2, "BRS3": 3}
+    }
 
-    return series.apply(parse_value)
+    df_encoded = df.copy()
+
+    for col, mapping in mappings.items():
+        if col in df_encoded.columns:
+            df_encoded[col] = df_encoded[col].astype(str).str.strip()  # Remove extra whitespace
+            df_encoded[col] = df_encoded[col].map(mapping)
+
+    return df_encoded
 
 def load_clinical():
     clinical_df = pd.read_csv(CLINICAL_CSV)
@@ -31,14 +38,12 @@ def load_clinical():
     cols_to_use = ['Case_ID'] + CLINICAL_FEATURES + [EVENT_COLUMN, TIME_COLUMN]
     clinical_df = clinical_df[cols_to_use]
     clinical_df = clinical_df.rename(columns={EVENT_COLUMN: 'event', TIME_COLUMN: 'duration'})
+    clinical_df = encode_clinical_features(clinical_df)
 
-    # Convert mixed columns first
-    for col in MIXED_COLS:
-        if col in clinical_df.columns:
-            clinical_df[col] = convert_mixed_column_to_numeric(clinical_df[col])
-
+    #clinical_df.to_csv('/home/u1970167/chimera/task3/clinical/features/before_coerce.csv')
     # Convert remaining clinical features to numeric
     clinical_df[CLINICAL_FEATURES] = clinical_df[CLINICAL_FEATURES].apply(pd.to_numeric, errors='coerce')
+    #clinical_df.to_csv('/home/u1970167/chimera/task3/clinical/features/after_coerce.csv')
 
     # Drop rows with any missing values in clinical features
     clinical_df = clinical_df.dropna(subset=CLINICAL_FEATURES)
@@ -94,7 +99,7 @@ def load_mri_features(case_ids):
         except Exception as e:
             print(f" Error loading MRI features for {case_id}: {e}")
             missing.append(case_id)
-            feats.append(np.zeros((M_FEATURE_DIM,), dtype=np.float32))  # fallback
+            feats.append(np.zeros((MRI_FEATURE_DIM,), dtype=np.float32))  # fallback
 
     if missing and VERBOSE:
         print(f" Missing MRI features for {len(missing)} cases: {missing}")
@@ -174,13 +179,6 @@ def load_wsi_features(case_ids, csv_path="path/to/wsi_features.csv"):
 
     return np.stack(selected_features)
 
-def load_radiomic_features(case_ids, csv_path):
-    df = pd.read_csv(csv_path)
-    df['Case_ID'] = df['Case_ID'].astype('str')
-    df = df[df['Case_ID'].isin(case_ids)].sort_values('Case_ID')
-    features = df.drop(columns=['Case_ID']).values
-    return features
-
 def load_folds():
     #fold_file = os.path.join(FOLDS_DIR, "folds.csv")
 
@@ -223,3 +221,70 @@ def get_feature_dimensionalities(clinical_df):
     clinical_features = clinical_df.drop(columns=['Case_ID', 'duration', 'event'], errors='ignore')
     clinical_dim = clinical_features.shape[1]
     return clinical_dim
+
+def convert_mixed_column_to_numeric(series):
+    def parse_value(val):
+        match = re.match(r"(\d+)([a-zA-Z]*)", str(val))
+        if match:
+            base = int(match.group(1))
+            suffix = match.group(2)
+            if suffix:
+                suffix_value = (ord(suffix.lower()) - ord('a') + 1) / 10
+                return base + suffix_value
+            else:
+                return float(base)
+        return None  # or np.nan
+    return series.apply(parse_value)
+
+def encode_clinical_features(df: pd.DataFrame) -> pd.DataFrame:
+    mappings = {
+        "sex": {"Male": 0, "Female": 1},
+        "tumor": {"Primary": 0},
+        "stage": {"T1HG": 1, "TaHG": 0},
+        "grade": {"G2": 2, "G3": 3},
+        "reTUR": {"No": 0, "Yes": 1},
+        "variant": {"UCC": 0, "UCC + Variant": 1},
+        "EORTC": {"High risk": 0, "Highest risk": 1},
+        "BRS": {"BRS1": 1, "BRS2": 2, "BRS3": 3}
+    }
+
+    df_encoded = df.copy()
+
+    for col, mapping in mappings.items():
+        if col in df_encoded.columns:
+            df_encoded[col] = df_encoded[col].astype(str).str.strip()  # Remove extra whitespace
+            df_encoded[col] = df_encoded[col].map(mapping)
+
+    return df_encoded
+
+def get_or_fit_scaler(name, train_array, fit=True, fold=0):
+    os.makedirs(GLOBAL_DIR, exist_ok=True)
+    scaler_path = os.path.join(GLOBAL_DIR, f"{name}_scaler_{fold}.pkl")
+    if fit:
+        scaler = StandardScaler()
+        scaler.fit(train_array)
+        joblib.dump(scaler, scaler_path)
+    else:
+        scaler = joblib.load(scaler_path)
+    return scaler
+
+def maybe_scale(modality, train_array, val_array, fit, fold, return_scaler=False):
+    scaler_path = os.path.join(GLOBAL_DIR, f"{modality}_scaler_fold{fold}.pkl")
+    if fit:
+        scaler = StandardScaler().fit(train_array)
+        joblib.dump(scaler, scaler_path)
+        train_scaled = scaler.transform(train_array)
+        val_scaled = scaler.transform(val_array) if val_array is not None else None
+    else:
+        scaler = joblib.load(scaler_path)
+        train_scaled = scaler.transform(train_array)
+        val_scaled = scaler.transform(val_array) if val_array is not None else None
+    if return_scaler:
+        return train_scaled, val_scaled, scaler
+    return train_scaled, val_scaled
+
+def safe_to_array(arr, n_samples):
+    # if arr is None, return empty array with shape (n_samples, 0)
+    if arr is None:
+        return np.empty((n_samples, 0))
+    return arr

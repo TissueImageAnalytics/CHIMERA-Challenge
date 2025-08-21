@@ -3,16 +3,16 @@ import numpy as np
 import pandas as pd
 import torch
 from config import *
-from utils.data_utils import load_clinical, load_radiomic_features, load_mri_features, load_wsi_features, load_wsi_features_mult, get_feature_dimensionalities, convert_mixed_column_to_numeric
-from models.model import MultimodalSurvivalModel
+from utils.data_utils import load_clinical, load_mri_features, load_wsi_features, load_wsi_features_mult, get_feature_dimensionalities, convert_mixed_column_to_numeric, safe_to_array
 from sksurv.metrics import concordance_index_censored
 from sklearn.preprocessing import StandardScaler
+from models.model import TransductiveSR as TSRR
 import joblib
 import json
 
 def get_or_fit_scaler(name, train_array, fit=True, run=0, fold=0):
     os.makedirs(GLOBAL_DIR, exist_ok=True)
-    scaler_path = os.path.join(GLOBAL_DIR, f"{name}_scaler_run_{run}_{fold}.pkl")
+    scaler_path = os.path.join(GLOBAL_DIR, f"{name}_scaler_RUN{run}_FOLD{fold}.pkl")
     
     if fit:
         scaler = StandardScaler()
@@ -69,6 +69,29 @@ def load_clinical_vectors_from_jsons(case_ids):
 
     return np.stack(all_vectors)  # shape: (num_cases, num_features)
 
+# def load_inference_data():
+#     """Load and merge modalities in the same way as training."""
+#     df = load_clinical()
+
+#     if USE_WSI_FEATURES:
+#         if AGGREG_CASE_WSI:
+#             wsi_df = load_wsi_features_mult(case_ids=)
+#         else:
+#             wsi_df = load_wsi_features(case_ids=)
+#         df = df.merge(wsi_df, on="Case_ID", how="inner")
+
+#     if USE_MRI_FEATURES:
+#         mri_df = load_mri_features(case_ids=)
+#         df = df.merge(mri_df, on="Case_ID", how="inner")
+
+#     # censoring
+#     T = np.array(df[TIME_COLUMN])
+#     E = np.array(df[EVENT_COLUMN])
+#     E[T > CENSORING] = 0
+#     T[T > CENSORING] = CENSORING
+
+#     return df, T, E
+
 def extract_clinical_vector(jsdata):
     """
     Reads clinical features from a single JSON object (already loaded),
@@ -96,7 +119,7 @@ def extract_clinical_vector(jsdata):
     return df.values.astype(np.float32)
 
 def inference(test_case_ids):
-   
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Load clinical data and get feature dims
     clinical_df = load_clinical()
     clinical_dim = get_feature_dimensionalities(clinical_df)
@@ -111,7 +134,6 @@ def inference(test_case_ids):
 
     #### for single case from clincal json @@@@@@@@@@@@@@@@@@@@@@@@@@
     if INFER_SINGLE:
-        
         test_case = os.listdir(CLINICAL_JSON_DIR)[0]
         input_chimera_clinical_data_of_prostate_cancer_patients = f"{CLINICAL_JSON_DIR}/{test_case}"
         with open(input_chimera_clinical_data_of_prostate_cancer_patients, "r") as f:
@@ -122,9 +144,6 @@ def inference(test_case_ids):
         ## ToDo: change the MRI and WSI feature loading to challenge format
         ## Temp work around: change the test_case_ids as in the next line
         test_case_ids = [test_case.split('.json')[0]]
-
-    if USE_RADIOMIC_FEATURES:
-        test_radiomic_array = load_radiomic_features(test_case_ids, csv_path=RADIOMIC_CSV)
 
     test_mri_array = load_mri_features(test_case_ids) if USE_MRI_FEATURES else None
 
@@ -137,28 +156,6 @@ def inference(test_case_ids):
     if not INFER_LOCAL:
         test_clin_array = load_clinical_vectors_from_jsons(test_case_ids) 
 
-    # Feature dimensions
-    c_dim = clinical_dim if USE_CLINICAL_FEATURES else 0
-    m_dim = M_FEATURE_DIM if USE_MRI_FEATURES else 0
-    w_dim = W_FEATURE_DIM if USE_WSI_FEATURES else 0
-
-    r_dim = R_FEATURE_DIM if USE_RADIOMIC_FEATURES else 0
-            
-    if r_dim > 0:
-        c_dim += r_dim
-
-    # Prepare model template
-    model = MultimodalSurvivalModel(
-        clin_dim=c_dim,
-        mri_dim=m_dim,
-        wsi_dim=w_dim,
-        fusion_type=FUSION_TYPE,
-        survival_model=SURVIVAL_MODEL,
-        time_bins=TIME_BINS
-    )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-
     best_run_path = os.path.join(GLOBAL_DIR, "best_run.json")
     if not os.path.exists(best_run_path):
         raise FileNotFoundError(f"Missing best_run.json. Please train models first.")
@@ -169,98 +166,65 @@ def inference(test_case_ids):
     fold_cindices = best_run_info["fold_cindices"]
 
     if USE_ENSEMBLE:
-        pmf_all_folds = []
+        preds = []
 
-        for fold_idx in range(NUM_FOLDS):
-            model_path = os.path.join(GLOBAL_DIR, f"best_model_run{best_run}_fold{fold_idx}.pt")
+        for fold_idx in range(NUM_FOLDS): ## model_TASK1_RUN0_FOLD1
+            model_path = os.path.join(GLOBAL_DIR, f"model_RUN{best_run}_FOLD{fold_idx}.pkl")
 
             if not os.path.exists(model_path):
                 print(f"[Warning] Model missing for fold {fold_idx}: {model_path}")
                 continue
+        
+            samples = test_clin_array.shape[0]
 
-            fold_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, run=best_run, fold=fold_idx) if USE_CLINICAL_FEATURES else (None, None)
-            fold_radi_array, _ = maybe_scale("radiomic", test_radiomic_array, test_radiomic_array, fit=False, run=best_run, fold=fold_idx) if USE_RADIOMIC_FEATURES else (None, None)
+            # scale + safe conversion for each modality
+            if USE_CLINICAL_FEATURES:
+                test_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array,
+                                                fit=False, run=best_run, fold=fold_idx)
+                test_clin_array = safe_to_array(test_clin_array, samples)
+            else:
+                test_clin_array = None
 
-            # Concatenate radiomic features to clinical AFTER scaling
-            if USE_RADIOMIC_FEATURES:
-                if fold_clin_array is not None:
-                    fold_clin_array = np.concatenate([fold_clin_array, fold_radi_array], axis=1)
-                else:
-                    fold_clin_array = fold_radi_array
+            if USE_MRI_FEATURES:
+                test_mri_array, _ = maybe_scale("mri", test_mri_array, test_mri_array,
+                                                fit=False, run=best_run, fold=fold_idx)
+                test_mri_array = safe_to_array(test_mri_array, samples)
+            else:
+                test_mri_array = None
 
-            fold_mri_array, _ = maybe_scale("mri", test_mri_array, test_mri_array, fit=False, run=best_run, fold=fold_idx) if USE_MRI_FEATURES else (None, None)
-            fold_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array, fit=False, run=best_run, fold=fold_idx) if USE_WSI_FEATURES else (None, None)
+            if USE_WSI_FEATURES:
+                test_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array,
+                                                fit=False, run=best_run, fold=fold_idx)
+                test_wsi_array = safe_to_array(test_wsi_array, samples)
+            else:
+                test_wsi_array = None
 
-            if fold_clin_array is not None and fold_clin_array.ndim == 1:
-                fold_clin_array = fold_clin_array.reshape(1, -1)
-            if fold_mri_array is not None and fold_mri_array.ndim == 1:
-                fold_mri_array = fold_mri_array.reshape(1, -1)
-            if fold_wsi_array is not None and fold_wsi_array.ndim == 1:
-                fold_wsi_array = fold_wsi_array.reshape(1, -1)
+            # collect only active modalities
+            modalities_test = []
+            if USE_CLINICAL_FEATURES:
+                modalities_test.append(test_clin_array)
+            if USE_MRI_FEATURES:
+                modalities_test.append(test_mri_array)
+            if USE_WSI_FEATURES:
+                modalities_test.append(test_wsi_array)
 
-            clin_tensor = torch.tensor(fold_clin_array, dtype=torch.float32).to(device) if fold_clin_array is not None else torch.zeros((1, c_dim), device=device)
-            mri_tensor = torch.tensor(fold_mri_array, dtype=torch.float32).to(device) if fold_mri_array is not None else torch.zeros((1, m_dim), device=device)
-            wsi_tensor = torch.tensor(fold_wsi_array, dtype=torch.float32).to(device) if fold_wsi_array is not None else torch.zeros((1, w_dim), device=device)
+            # final design matrix
+            X_val = np.concatenate(modalities_test, axis=1)
 
-            model.load_state_dict(torch.load(model_path, map_location=device))
-            model.eval()
+            # inference
+            model = joblib.load(model_path)
+            print('X_val: ', X_val)
+            Z = model.decision_function(X_val)
+            preds.append(Z)
 
-            with torch.no_grad():
-                out = model(clinical_feat=clin_tensor, mri_feat=mri_tensor, wsi_feat=wsi_tensor)
-                pmf_all_folds.append(out.cpu().numpy())
-
-        if not pmf_all_folds:
-            raise RuntimeError("No models loaded for ensemble inference.")
-
-        avg_pmf = np.mean(pmf_all_folds, axis=0)
-    else: ## This is not updated and shold not be used at the moment.
-        # Load best run info
-        best_run_path = os.path.join(GLOBAL_DIR, "best_run.json")
-        if not os.path.exists(best_run_path):
-            raise FileNotFoundError(f"Missing best_run.json. Please train models first.")
-        with open(best_run_path, "r") as f:
-            best_run_info = json.load(f)
-
-        best_run = best_run_info["best_run"]
-        fold_cindices = best_run_info["fold_cindices"]
-        best_fold = int(np.argmax(fold_cindices))  # index of best fold
-
-        model_path = os.path.join(GLOBAL_DIR, f"best_model_run{best_run}_fold{best_fold}.pt")
-        print(f"Using best single model: Run {best_run}, Fold {best_fold}, {model_path}")
-
-        test_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, run=0, fold=best_fold-1) if USE_CLINICAL_FEATURES else (None, None)
-        test_mri_array, _ = maybe_scale("mri", test_mri_array, test_mri_array, fit=False, run=0, fold=best_fold-1) if USE_MRI_FEATURES else (None, None)
-        test_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array, fit=False, run=0, fold=best_fold-1) if USE_WSI_FEATURES else (None, None)
-
-        if test_clin_array is not None and test_clin_array.ndim == 1:
-            test_clin_array = test_clin_array.reshape(1, -1)
-        if test_mri_array is not None and test_mri_array.ndim == 1:
-            test_mri_array = test_mri_array.reshape(1, -1)
-        if test_wsi_array is not None and test_wsi_array.ndim == 1:
-            test_wsi_array = test_wsi_array.reshape(1, -1)
-
-        clin_tensor = torch.tensor(test_clin_array, dtype=torch.float32).to(device) if test_clin_array is not None else torch.zeros((1, c_dim), device=device)
-        mri_tensor = torch.tensor(test_mri_array, dtype=torch.float32).to(device) if test_mri_array is not None else torch.zeros((1, m_dim), device=device)
-        wsi_tensor = torch.tensor(test_wsi_array, dtype=torch.float32).to(device) if test_wsi_array is not None else torch.zeros((1, w_dim), device=device)
-
-        model.load_state_dict(torch.load(model_path, map_location=device))
-        model.eval()
-
-        with torch.no_grad():
-            avg_pmf = model(clinical_feat=clin_tensor, mri_feat=mri_tensor, wsi_feat=wsi_tensor)[0].cpu().numpy()
-
+        avg_preds = np.mean(preds, axis=0)
+    
     ## to test with a single json clinical file
     if INFER_SINGLE:
-        time_bins = np.arange(TIME_BINS)
-        score = float(np.sum(avg_pmf * time_bins))
-        print(f"Score for case {test_case}:  {score}")
+        print(f"Score for case {test_case}:  {avg_preds[0]}")
         exit()
 
-    ##Expected time = sum_t p(t) * t
-    time_bins = np.arange(TIME_BINS)
-    expected_times = np.sum(avg_pmf * time_bins[None, :], axis=1)
-
-    return dict(zip(test_case_ids, expected_times))
+    return dict(zip(test_case_ids, avg_preds))
 
 if __name__ == "__main__":
     os.makedirs(GLOBAL_DIR, exist_ok=True)
@@ -297,9 +261,6 @@ if __name__ == "__main__":
     ## sksurv concordance function expects a risk score but as the challenge expect the algorithms to return time-to-event therefore, their code negates the time-to-event so it becomes a risk score
     ## But if the algorithm is returning a risk score then it should be negated before hand so that the negation of their code is cancelled out and the risk score remains the risk score.
  
-    if SURVIVAL_MODEL == 'cox':
-        preds = -preds
-    
     c_index = concordance_index_censored( 
             events.astype(bool),
             durations,
@@ -310,3 +271,5 @@ if __name__ == "__main__":
         print(f"\nEnsemble C-index on full training set: {c_index[0]:.4f}")
     else:
         print(f"\nC-index on full training set using best of 5fold model: {c_index[0]:.4f}")
+
+        

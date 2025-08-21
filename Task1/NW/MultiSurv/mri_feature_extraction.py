@@ -89,13 +89,12 @@ def extract_features_from_volume(volume, model, device):
     return features.cpu().numpy()
 
 def extract_features_for_patient(patient_dir, model, device, scan_id):
-    modalities = ['t2w', 'adc', 'hbv']
     modality_features = []
 
     mask_path = os.path.join(patient_dir, f"{scan_id}_mask.mha")
     mask_img = sitk.ReadImage(mask_path) if os.path.exists(mask_path) else None
 
-    for mod in modalities:
+    for mod in MODALITIES:
         mod_path = os.path.join(patient_dir, f"{scan_id}_{mod}.mha")
         if not os.path.exists(mod_path):
             raise FileNotFoundError(f"{mod_path} not found")
@@ -115,10 +114,15 @@ def extract_features_for_patient(patient_dir, model, device, scan_id):
     if COMBINE_MODALITIES:
         return np.mean(modality_features, axis=0)
     else:
-        return dict(zip(modalities, modality_features))
+        return dict(zip(MODALITIES, modality_features))
 
 def extract_and_save_features(model, device):
-    os.makedirs(os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}_single"), exist_ok=True)
+    # Construct output folder path with ROI flag and selected modalities
+    mod_str = "_".join(MODALITIES)
+    feature_dir = os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}_{mod_str}")
+    os.makedirs(feature_dir, exist_ok=True)
+
+    # Get all patient directories
     patient_dirs = [os.path.join(MRI_IMG_DIR, d) for d in os.listdir(MRI_IMG_DIR) if os.path.isdir(os.path.join(MRI_IMG_DIR, d))]
 
     for patient_dir in tqdm(patient_dirs):
@@ -129,6 +133,7 @@ def extract_and_save_features(model, device):
                 print(f"No T2W files in {patient_dir}")
                 continue
 
+            # Group scans by patient ID
             scan_groups = defaultdict(list)
             for f in t2w_files:
                 match = re.match(r"([a-zA-Z0-9]+)_\d+_t2w\.mha$", f.lower())
@@ -140,17 +145,29 @@ def extract_and_save_features(model, device):
                 for t2_file in scans:
                     scan_id = t2_file.replace("_t2w.mha", "")
 
-                    if os.path.isfile(os.path.join(MRI_FEATURE_DIR, f'ROI_{APPLY_ROI}_single', f'{scan_id}.npy')):
-                        print(f"Skipping {scan_id} as feature file already exists at {os.path.join(MRI_FEATURE_DIR, f'ROI_{APPLY_ROI}', f'{scan_id}.npy')}")
-                        continue
+                    # Check if feature already exists
+                    if COMBINE_MODALITIES:
+                        output_path = os.path.join(feature_dir, f"{scan_id}.npy")
+                        if os.path.isfile(output_path):
+                            print(f"Skipping {scan_id}, already exists.")
+                            continue
+                    else:
+                        all_exist = all([
+                            os.path.isfile(os.path.join(feature_dir, f"{scan_id}_{mod}.npy"))
+                            for mod in MODALITIES
+                        ])
+                        if all_exist:
+                            print(f"Skipping {scan_id}, all modality features exist.")
+                            continue
 
+                    # Extract and save features
                     try:
                         features = extract_features_for_patient(patient_dir, model, device, scan_id)
                         if COMBINE_MODALITIES:
-                            np.save(os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}", f"{scan_id}.npy"), features)
+                            np.save(os.path.join(feature_dir, f"{scan_id}.npy"), features)
                         else:
                             for mod, vec in features.items():
-                                np.save(os.path.join(MRI_FEATURE_DIR, f"ROI_{APPLY_ROI}_single", f"{scan_id}_{mod}.npy"), vec)
+                                np.save(os.path.join(feature_dir, f"{scan_id}_{mod}.npy"), vec)
                     except Exception as e:
                         print(f"Failed to process {scan_id}: {e}")
         except Exception as e:
@@ -162,13 +179,12 @@ def extract_MRI_features():
 
     extract_and_save_features(model, device)
 
-if __name__ == "__main__":
-    root_data_dir = "/media/u1973415/data/u1973415/Chimera/data/task_1/radiology/images/"
-    # feature_output_dir = "/media/u1973415/data/u1973415/Chimera/output/NW_code/task1/radiology/features_ROI/"
-    model_weights_path = "/media/u1973415/data/u1973415/Chimera/github_repo/CHIMERA-Challenge/Task1/NW/MultiSurv/features/radiology/resnet_50_23dataset.pth"
+# if __name__ == "__main__":
+#     root_data_dir = "/home/u1970167/chimera/task1/radiology/images/"
+#     feature_output_dir = "/home/u1970167/chimera/task1/radiology/features_ROI/"
+#     model_weights_path = "/home/u1970167/chimera/task1/radiology/resnet_50_23dataset.pth"
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_medicalnet_resnet50(model_weights_path, device)
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#     model = load_medicalnet_resnet50(model_weights_path, device)
 
-    # extract_and_save_features(root_data_dir, feature_output_dir, model, device)
-    extract_and_save_features(model, device)
+#     extract_and_save_features(root_data_dir, feature_output_dir, model, device)

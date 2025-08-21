@@ -1,0 +1,14 @@
+{
+  "task": 1,
+  "modality": "titan",
+  "censoring": 120,
+  "tuning_trials": 50,
+  "random_seed": 42,
+  "time_col": "time_to_follow-up/BCR",
+  "event_col": "BCR",
+  "dropped_clin_cols": [
+    "earlier_therapy",
+    "BCR_PSA",
+    "tertiary_gleason"
+  ]
+}
