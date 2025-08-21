@@ -73,6 +73,7 @@ fi
 
 
 cd /opt/app
-echo "running task3_inference_clinical.py"
+echo "running cox_baseline.py"
 # Use exec for the last long-running process so PID 1 is Python (proper signals/exit code)
-exec python -u task3_inference_clinical.py
+# exec python -u task3_inference_clinical.py
+exec python -u cox_baseline.py

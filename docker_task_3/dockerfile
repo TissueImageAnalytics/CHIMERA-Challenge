@@ -41,6 +41,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
 RUN pip install tiatoolbox
 RUN pip install scikit-learn==1.6.1
 RUN pip install numcodecs==0.15.1
+RUN pip install lifelines==0.30.0
 # RUN pip install timm==1.0.11
 # RUN pip install monai==1.4.0
 # RUN pip install --no-deps segmentation-models-pytorch==0.3.4
@@ -82,10 +83,10 @@ COPY --chown=user:user --chmod=0755 task3_commands.sh /opt/app/
 # COPY --chown=user:user --chmod=0755 convert_tissue_mask_for_trident.py /opt/app/
 # COPY --chown=user:user --chmod=0755 task3_inference_114.py /opt/app/
 # COPY --chown=user:user --chmod=0755 config114.py /opt/app/
-COPY --chown=user:user --chmod=0755 task3_inference_clinical.py /opt/app/
-COPY --chown=user:user --chmod=0755 config_clinical.py /opt/app/
+COPY --chown=user:user --chmod=0755 cox_baseline.py /opt/app/
+COPY --chown=user:user --chmod=0755 config_cox.py /opt/app/
 # COPY --chown=user:user --chmod=0755 data_utils.py /opt/app/
-COPY --chown=user:user --chmod=0755 model.py /opt/app/
+# COPY --chown=user:user --chmod=0755 model.py /opt/app/
 # COPY --chown=user:user --chmod=0755 resnet.py /opt/app/
 # COPY --chown=user:user --chmod=0755 clinical_only_inference.py /opt/app/
 

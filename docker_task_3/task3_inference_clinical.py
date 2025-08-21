@@ -73,7 +73,7 @@ def extract_clinical_vector(jsdata):
 
     # Ensure all values are numeric
     df_encoded = df_encoded.apply(pd.to_numeric, errors='coerce')
-
+ 
     # Check for missing values
     if df_encoded.isnull().any().any():
         missing_cols = df_encoded.columns[df_encoded.isnull().any()].tolist()
@@ -154,7 +154,7 @@ def inference():
             model.eval()
 
             with torch.no_grad():
-                out = model(clinical_feat=clin_tensor, rna_feat=rna_tensor, wsi_feat=wsi_tensor)
+                out = model(clinical_feat=clin_tensor, rna_feat=None, wsi_feat=None)
                 pmf_all_folds.append(out.cpu().numpy())
 
         if not pmf_all_folds:
