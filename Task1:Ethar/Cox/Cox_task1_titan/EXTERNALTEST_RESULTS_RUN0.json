@@ -1,0 +1,11 @@
+{
+  "run": 0,
+  "best_alpha": 0.013577175471276301,
+  "cv_mean_cindex": 0.8752172993440512,
+  "cv_std_cindex": 0.06175864619046587,
+  "best_fold_index": 1,
+  "external_test_cindex_bestfold": 0.7005494505494505,
+  "external_test_logrank_p_bestfold": 0.050537630931878574,
+  "external_test_cindex_ensemble": 0.695054945054945,
+  "external_test_logrank_p_ensemble": 0.008417552865743668
+}
