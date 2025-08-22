@@ -35,56 +35,61 @@ class SurvivalDataset(Dataset):
 
 # ===== Cox partial log-likelihood loss =====
 def cox_loss(predictions, durations, events):
-    hazards = predictions.squeeze()
-    sorted_indices = torch.argsort(durations, descending=True)
-    hazards = hazards[sorted_indices]
-    events = events[sorted_indices]
-    log_cum_sum_exp = torch.logcumsumexp(hazards, dim=0)
-    losses = -hazards + log_cum_sum_exp
-    losses = losses * events
-    return losses.sum() / events.sum()
+    """
+    predictions: [B, 1] risk scores (higher = more risk)
+    durations:   [B] survival times
+    events:      [B] event indicators (1=observed, 0=censored)
+    """
+    hazards = predictions.view(-1)  # flatten to [B]
+    order = torch.argsort(durations, descending=True)
+    hazards = hazards[order]
+    events = events[order].float()
+
+    log_risk = torch.logcumsumexp(hazards, dim=0)  # log(sum_j exp(h_j))
+    per_event = hazards - log_risk  # log partial likelihood
+    loss = -(per_event * events).sum() / (events.sum() + 1e-8)
+
+    return loss
 
 # ===== DeepHit loss =====
 def deephit_loss_censored(pred, durations, events, alpha=0.5, time_bins=TIME_BINS, debug=False):
     """
-    DeepHit loss combining likelihood loss and ranking loss.
-
+    DeepHit loss combining likelihood loss and ranking loss (handles censoring).
     Args:
-        pred: Tensor of shape [N, T], predicted PMFs over discrete time bins.
-        durations: Tensor of shape [N], observed durations (event or censoring times).
-        events: Tensor of shape [N], 1 if event observed, 0 if censored.
+        pred: Tensor [N, T], predicted PMFs over discrete time bins.
+        durations: Tensor [N], observed durations (event or censoring times).
+        events: Tensor [N], 1 if event observed, 0 if censored.
         alpha: float, weight between likelihood and ranking losses.
         time_bins: int, total number of discrete time bins.
-
     Returns:
         Scalar tensor with combined DeepHit loss.
     """
     device = pred.device
     N, T = pred.shape
 
-    # Clamp durations to valid range of time bins
+    # Clamp durations to valid bins
     durations = torch.clamp(durations.long(), max=time_bins - 1).to(device)
     events = events.bool().to(device)
 
-    # Negative log likelihood part (cause-specific likelihood)
+    # --- Likelihood loss (only for observed events) ---
     idx = torch.arange(N, device=device)
     likelihood_loss = -torch.log(pred[idx, durations] + 1e-8)
-    likelihood_loss = torch.mean(likelihood_loss[events])
+    if events.any():
+        likelihood_loss = likelihood_loss[events].mean()
+    else:
+        likelihood_loss = torch.tensor(0.0, device=device)
 
-    # Ranking loss part (to encourage correct ordering)
-    # Construct pairwise comparisons for subjects with events
-    event_idx = torch.where(events)[0]
+    # --- Ranking loss ---
+    event_idx = torch.where(events)[0].tolist()
     if len(event_idx) <= 1:
-        # Not enough events to compute ranking loss, fallback to likelihood only
-        return likelihood_loss
+        return likelihood_loss   # fallback
 
-    # Compute risk scores as expected time
+    # Risk scores = expected time of event
     time_range = torch.arange(T, device=device).float()
     risk_scores = (pred * time_range).sum(dim=1)
 
     rank_loss = 0.0
     count = 0
-
     for i in event_idx:
         for j in range(N):
             if durations[j] > durations[i]:  # j survived longer than i
@@ -95,11 +100,13 @@ def deephit_loss_censored(pred, durations, events, alpha=0.5, time_bins=TIME_BIN
     if count > 0:
         rank_loss = rank_loss / count
     else:
-        rank_loss = 0.0
+        rank_loss = torch.tensor(0.0, device=device)
 
-    # Combine losses
+    # --- Combine ---
     total_loss = (1 - alpha) * likelihood_loss + alpha * rank_loss
 
+    if debug:
+        return total_loss, likelihood_loss, rank_loss
     return total_loss
 
 def safe_log(x, eps=1e-6):
@@ -135,7 +142,7 @@ def deephit_loss_uncensored(pred, durations, events, alpha=0.5, time_bins=TIME_B
     # Uncensored: log P(event at t)
     p_event = pred[idx, durations]
 
-    if debug:
+    if debug and SURVIVAL_MODEL == 'deephit':
         # Check sum of PMF per sample (should be close to 1)
         pmf_sums = pred.sum(dim=1)
         if torch.any(pmf_sums < 0.99) or torch.any(pmf_sums > 1.01):
@@ -237,7 +244,10 @@ def train_one_epoch(model, dataloader, optimizer, survival_model, device):
         )
 
         optimizer.zero_grad()
-        clin, rna, wsi = modality_dropout(clin_feat=clin, rna_feat=rna, wsi_feat=wsi)
+        
+        if DROP_MODALITY: ## @@@@@@@do not use during evaluation. comment this out after the comparision with the new models is done on the test set. ####@@@@@@@@@@@@@
+            clin, rna, wsi = modality_dropout(clin_feat=clin, rna_feat=rna, wsi_feat=wsi)
+
         outputs = model(clinical_feat=clin, rna_feat=rna, wsi_feat=wsi)
 
         for i in range(min(5, outputs.size(0))):
@@ -251,12 +261,12 @@ def train_one_epoch(model, dataloader, optimizer, survival_model, device):
         #print("PMF sums min/max:", pmf_sums.min().item(), pmf_sums.max().item())
 
         min_val = outputs.min().item()
-        if min_val < 0:
-            print("Warning: Negative probabilities in predictions!")
-        if (pmf_sums < 0.99).any() or (pmf_sums > 1.01).any():
-            print("Warning: PMF sums not close to 1")
+        # if min_val < 0:
+        #     print("Warning: Negative probabilities in predictions!")
+        # if (pmf_sums < 0.99).any() or (pmf_sums > 1.01).any():
+        #     print("Warning: PMF sums not close to 1")
 
-        if survival_model == 'cox':
+        if survival_model in ("cox", "deepsurv"):
             loss = cox_loss(outputs, duration, event)
         elif survival_model == 'deephit' and DEEPHIT_LOSS == 'uncensored':
             result = deephit_loss_uncensored(outputs, duration, event, debug=True)
@@ -304,10 +314,10 @@ def evaluate(model, dataloader, survival_model, device):
             wsi = wsi.to(device)
             duration = duration.to(device)
             event = event.to(device)
-            clin, rna, wsi = modality_dropout(clin_feat=clin, rna_feat=rna, wsi_feat=wsi)
+            #clin, rna, wsi = modality_dropout(clin_feat=clin, rna_feat=rna, wsi_feat=wsi)
             output = model(clinical_feat=clin, rna_feat=rna, wsi_feat=wsi) 
 
-            if survival_model == 'cox':
+            if survival_model in ("cox", "deepsurv"):
                 preds = output.squeeze()
             elif survival_model == 'deephit':
                 time_bins = output.shape[1]
@@ -323,6 +333,9 @@ def evaluate(model, dataloader, survival_model, device):
     all_preds = torch.cat(all_preds).numpy()
     all_durations = torch.cat(all_durations).numpy()
     all_events = torch.cat(all_events).numpy()
+
+    if survival_model in ("cox", "deepsurv"):
+        all_preds = -all_preds
 
     c_index = concordance_index_censored(
         all_events.astype(bool),

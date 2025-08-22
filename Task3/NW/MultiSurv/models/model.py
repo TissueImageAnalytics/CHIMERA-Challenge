@@ -11,7 +11,7 @@ class ProjectionHead(nn.Module):
         self.proj = nn.Sequential(
             nn.Linear(in_dim, out_dim),
             nn.ReLU(),
-            nn.Dropout(0.1)
+            nn.Dropout(PROJECTION_DROPOUT)
         )
 
     def forward(self, x):
@@ -109,8 +109,29 @@ class DeepHitHead(nn.Module):
     def forward(self, x):
         return torch.softmax(self.fc(x), dim=1)
 
+class DeepSurvHead(nn.Module):
+    def __init__(self, in_dim, hidden_dim=64, dropout=0.3):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, 1)  # must output scalar risk
+        )
+
+    def forward(self, x):
+        out = self.mlp(x)
+        assert out.shape[-1] == 1, f"Expected risk score shape [B,1], got {out.shape}"
+        return out
+
+# === Multimodal Survival Model ===
 class MultimodalSurvivalModel(nn.Module):
-    def __init__(self, clin_dim, rna_dim, wsi_dim, fusion_type='modality', survival_model='cox', time_bins=30):
+    def __init__(
+        self,
+        clin_dim=None,
+        rna_dim=None,
+        wsi_dim=None,
+    ):
         super().__init__()
 
         self.clinical_proj = ProjectionHead(clin_dim, HIDDEN_DIM) if clin_dim > 0 else None
@@ -125,69 +146,55 @@ class MultimodalSurvivalModel(nn.Module):
         if self.wsi_proj is not None:
             input_dims.append(HIDDEN_DIM)
 
-        # Fusion selection
-        if fusion_type == 'simple':
+        # Fusion strategy
+        if FUSION_TYPE == "concat":
+            fusion_dim = (HIDDEN_DIM if (clin_dim and clin_dim > 0) else 0) \
+                    + (HIDDEN_DIM if (rna_dim and rna_dim > 0) else 0) \
+                    + (HIDDEN_DIM if (wsi_dim and wsi_dim > 0) else 0)
+            self.fusion = nn.Identity()
+        elif FUSION_TYPE == 'simple':
             self.fusion = SimpleConcatFusion()
             fusion_dim = sum(input_dims)
-        elif fusion_type == 'linear':
+        elif FUSION_TYPE == "linear":
+            fusion_dim = HIDDEN_DIM
             self.fusion = LinearFusion(input_dims)
+        elif FUSION_TYPE == "cross_att":
             fusion_dim = HIDDEN_DIM
-        elif fusion_type == 'cross_att':
-            if len(input_dims) < 2:
-                # Fallback: no cross-att possible, just use identity or linear
-                print("Error: CrossAttentionFusion requires >= 2 modalities. Please use linear or simple.")
-                exit()
-            else:
-                self.fusion = CrossAttentionFusion(input_dims)
-                fusion_dim = HIDDEN_DIM
-        elif fusion_type == 'gated':
-            # instance-wise learned gates per modality
-            self.fusion = GatedModalityFusion(input_dims)
-            fusion_dim = HIDDEN_DIM
+            self.fusion = CrossAttentionFusion(input_dims)
         else:
-            raise ValueError(f"Unknown fusion_type {fusion_type}")
+            raise ValueError(f"Unknown fusion method: {FUSION_TYPE}")
 
-        if survival_model == 'cox':
+        # Post-fusion dropout
+        self.fusion_dropout = FUSION_DROPOUT
+
+        if SURVIVAL_MODEL == 'cox':
             self.head = CoxHead(fusion_dim)
+        elif SURVIVAL_MODEL == 'deepsurv':
+            self.head = DeepSurvHead(fusion_dim)
+        elif SURVIVAL_MODEL == 'deephit':
+            self.head = DeepHitHead(fusion_dim, TIME_BINS)
         else:
-            self.head = DeepHitHead(fusion_dim, time_bins)
-
-        self.survival_model = survival_model
-        self.time_bins = time_bins
+            raise ValueError(f"Unknown survival model {SURVIVAL_MODEL}")
 
     def forward(self, clinical_feat=None, rna_feat=None, wsi_feat=None):
-        device = next(self.parameters()).device
         features = []
-
-        B = None
-
-        if self.clinical_proj is not None:
-            if clinical_feat is None:
-                B = rna_feat.size(0) if rna_feat is not None else 1
-                clinical_feat = torch.zeros(B, self.clinical_proj.proj[0].in_features, device=device)
-            else:
-                clinical_feat = clinical_feat.to(device)
+        if clinical_feat is not None and self.clinical_proj is not None:
             features.append(self.clinical_proj(clinical_feat))
-
-        if self.rna_proj is not None:
-            if rna_feat is None:
-                B = clinical_feat.size(0) if clinical_feat is not None else 1
-                rna_feat = torch.zeros(B, self.rna_proj.proj[0].in_features, device=device)
-            else:
-                rna_feat = rna_feat.to(device)
+        if rna_feat is not None and self.rna_proj is not None:
             features.append(self.rna_proj(rna_feat))
-
-        if self.wsi_proj is not None:
-            if wsi_feat is None:
-                B = clinical_feat.size(0) if clinical_feat is not None else 1
-                wsi_feat = torch.zeros(B, self.wsi_proj.proj[0].in_features, device=device)
-            else:
-                wsi_feat = wsi_feat.to(device)
+        if wsi_feat is not None and self.wsi_proj is not None:
             features.append(self.wsi_proj(wsi_feat))
 
-        fused = self.fusion(features)
-        return self.head(fused)
+        if not features:
+            raise ValueError("No modalities provided.")
 
+        fused = torch.cat(features, dim=1) if isinstance(self.fusion, nn.Identity) else self.fusion(features)
+
+        # Dropout *after fusion*
+        fused = F.dropout(fused, p=self.fusion_dropout, training=self.training)
+
+        return self.head(fused)
+    
 ## modality confidence network
 class dis_MultimodalSurvivalModel(nn.Module):
     def __init__(self, clin_dim, rna_dim, wsi_dim, fusion_type='linear', survival_model='cox', time_bins=30):

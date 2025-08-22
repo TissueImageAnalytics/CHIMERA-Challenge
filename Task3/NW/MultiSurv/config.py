@@ -39,22 +39,32 @@ elif TASK == 3:
     TIME_COLUMN = 'Time_to_prog_or_FUend'
 
 # === Clinical Features to Use ===
-CLINICAL_FEATURES = ['age', 'sex', 'tumor', 'stage', 'grade', 'reTUR', 'variant', 'EORTC', 'no_instillations', 'BRS']
+#CLINICAL_FEATURES = ['age', 'sex', 'tumor', 'stage', 'grade', 'reTUR', 'variant', 'EORTC', 'no_instillations', 'BRS']
+CLINICAL_FEATURES = ['age', 'sex', 'stage', 'grade', 'reTUR', 'variant', 'EORTC', 'BRS']
 
 # === Experiment settings ===
 USE_CLINICAL_FEATURES = True
 USE_RNA_FEATURES = False
-USE_WSI_FEATURES = False
+USE_WSI_FEATURES = True
 
 # modality drop out during training
+DROP_MODALITY = False ## set to false if do not want modality dropout
+
 CLINICAL_DROPOUT=0.2
 RNA_DROPOUT = 0.2
 WSI_DROPOUT= 0.7
 
-SURVIVAL_MODEL = 'cox'  # Options: 'cox' or 'deephit'
-FUSION_TYPE = 'linear'  # Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params),  'cross_att' (AS cross attention fusion)
+## model drop out
+PROJECTION_DROPOUT = 0.1 ## drop out for each projection head for each modality
+FUSION_DROPOUT = 0.1 ## drop out for each projection head for each modality
+
+SURVIVAL_MODEL = 'deephit'  # Options: 'cox' or 'deephit' or 'deepsurv'
+FUSION_TYPE = 'cross_att'  # Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params),  'cross_att' (AS cross attention fusion)
 DEEPHIT_LOSS = 'uncensored' # 'censored' or 'uncensored'. 'censored' has a extra term for accounting for censored data whereas 'uncensored' only considers uncensored cases
+
 TIME_BINS = 30  # Only for deephit
+
+BIN_EDGES = True ## set to true if changing discrete bins to bins with edges so that the times are not pushed to the few last bins
 NUM_FOLDS = 5
 SEED = 42
 HIDDEN_DIM = 128  # or 128, tune as needed
@@ -72,16 +82,17 @@ CLINICAL_DIM = len(CLINICAL_FEATURES)
 AGGREG_CASE_WSI = False ## False: just select the first WSI in alphabetical order for reproducibility in cross-validations. True: mean aggregates the multiple WSIs per case.
 
 # === Training settings ===
-EPOCHS = 105
-LR = 1e-3
-WD = 1e-4
+EPOCHS = 500 #112
+LR = 1e-4
+WD = 1e-3
 BATCH_SIZE = 16
-PATIENCE = 20 ## early-stop on no improvement to c-index
+PATIENCE = 50 ## early-stop on no improvement to c-index
+
+FULL_BATCH = True   # False to use mini-batch of BATCH_SIZE
 
 # === Debug ===
 VERBOSE = True
 
-# === Inference ===
 # === Inference ===
 USE_ENSEMBLE = True  # True means ensemble the results of the best models from the 5 folds across the N runs. False means use the best of the 5 folds across the N runs. Currently, only ENSEMBLE is implemented so do not set to False
 # INFER_LOCAL = True ## True means: use the features in the form of csv files rather than Challenge expected json (for clinical), wsi_path (for WSIs) and mri_path (for MRI files);
@@ -91,8 +102,8 @@ INFER_SINGLE = False ## True means: print score for a single file using the Chal
                     ## Note: the INFER_SINGLE will not produce c-index but only print the score of the first case from the csv file CLINICAL_CSV
 
 if SURVIVAL_MODEL == 'cox':
-    GLOBAL_DIR = f"{OUTPUT_DIR}clinic_{USE_CLINICAL_FEATURES}_rna_{USE_RNA_FEATURES}_wsi_{USE_WSI_FEATURES}_model_CoxPH/"
+    GLOBAL_DIR = f"{OUTPUT_DIR}clin_{USE_CLINICAL_FEATURES}_rna_{USE_RNA_FEATURES}_wsi_{USE_WSI_FEATURES}_model_CoxPH/"
 else:
-    GLOBAL_DIR = f"{OUTPUT_DIR}clinic_{USE_CLINICAL_FEATURES}_rna_{USE_RNA_FEATURES}_wsi_{USE_WSI_FEATURES}_embedder_{EMBEDDER}_model_{SURVIVAL_MODEL}_fusion_{FUSION_TYPE}_scale_{SCALE_DATA}_epochs_{EPOCHS}/" ## main path for results
+    GLOBAL_DIR = f"{OUTPUT_DIR}clin_{USE_CLINICAL_FEATURES}_rna_{USE_RNA_FEATURES}_wsi_{USE_WSI_FEATURES}_embed_{EMBEDDER}_model_{SURVIVAL_MODEL}_fuse_{FUSION_TYPE}_loss_{DEEPHIT_LOSS}_scale_{SCALE_DATA}_ep_{EPOCHS}_ModDrop_{DROP_MODALITY}_binEdg_{BIN_EDGES}/" ## main path for results
 #GLOBAL_DIR = f"{OUTPUT_DIR}task3_submission1_clin_wsi_xatt_modDrop"
-#GLOBAL_DIR = f"{OUTPUT_DIR}task3_submission1_clin"
+GLOBAL_DIR = f"{OUTPUT_DIR}task3_submission3_clin_wsi"

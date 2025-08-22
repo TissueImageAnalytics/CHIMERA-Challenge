@@ -3,7 +3,8 @@ import numpy as np
 import pandas as pd
 import torch
 from config import *
-from utils.data_utils import load_clinical, load_rna_features, load_wsi_features, load_wsi_features_mult, get_feature_dimensionalities, encode_clinical_features
+from utils.data_utils import load_clinical, load_rna_features, load_wsi_features, load_wsi_features_mult, encode_clinical_features
+#from utils.bins import expected_time_from_pmf
 from models.model import MultimodalSurvivalModel
 from sksurv.metrics import concordance_index_censored
 from sklearn.preprocessing import StandardScaler
@@ -55,7 +56,7 @@ def extract_clinical_vector(jsdata):
 def inference(test_case_ids):
     # Load clinical data and get feature dims
     clinical_df = load_clinical()
-    clinical_dim = get_feature_dimensionalities(clinical_df)
+    #clinical_dim = get_feature_dimensionalities(clinical_df)
 
     # Sort test case IDs to preserve consistent output order
     test_case_ids = sorted(test_case_ids)
@@ -67,7 +68,6 @@ def inference(test_case_ids):
 
     #### for single case from clincal json @@@@@@@@@@@@@@@@@@@@@@@@@@
     if INFER_SINGLE:
-        
         test_case = os.listdir(CLINICAL_JSON_DIR)[0]
         input_chimera_clinical_data_of_prostate_cancer_patients = f"{CLINICAL_JSON_DIR}/{test_case}/{test_case}_CD.json"
         with open(input_chimera_clinical_data_of_prostate_cancer_patients, "r") as f:
@@ -78,7 +78,6 @@ def inference(test_case_ids):
         ## ToDo: change the RNA and WSI feature loading to challenge format
         ## Temp work around: change the test_case_ids as in the next line
         test_case_ids = [test_case.split('.json')[0]]
-
     
     test_rna_array = load_rna_features(test_case_ids) if USE_RNA_FEATURES else None
 
@@ -88,25 +87,22 @@ def inference(test_case_ids):
         test_wsi_array = load_wsi_features(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
 
     # Feature dimensions
-    c_dim = clinical_dim if USE_CLINICAL_FEATURES else 0
-    m_dim = RNA_DIM_REDUCE_TO if USE_RNA_FEATURES else 0
-    w_dim = WSI_FEATURE_DIM if USE_WSI_FEATURES else 0
+    c_dim = test_clin_array.shape[1] if (USE_CLINICAL_FEATURES and test_clin_array is not None) else 0
+    r_dim = test_rna_array.shape[1] if (USE_RNA_FEATURES and test_rna_array is not None) else 0
+    w_dim = test_wsi_array.shape[1] if (USE_WSI_FEATURES and test_wsi_array is not None) else 0
 
     # Prepare model template
     model = MultimodalSurvivalModel(
         clin_dim=c_dim,
-        rna_dim=m_dim,
+        rna_dim=r_dim,
         wsi_dim=w_dim,
-        fusion_type=FUSION_TYPE,
-        survival_model=SURVIVAL_MODEL,
-        time_bins=TIME_BINS
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
     best_run_path = os.path.join(GLOBAL_DIR, "best_run.json")
     if not os.path.exists(best_run_path):
-        raise FileNotFoundError(f"Missing best_run.json. Please train models first.")
+        raise FileNotFoundError(f"Missing {best_run_path}. Please train models first.")
     with open(best_run_path, "r") as f:
         best_run_info = json.load(f)
 
@@ -134,9 +130,9 @@ def inference(test_case_ids):
             if fold_wsi_array is not None and fold_wsi_array.ndim == 1:
                 fold_wsi_array = fold_wsi_array.reshape(1, -1)
 
-            clin_tensor = torch.tensor(fold_clin_array, dtype=torch.float32).to(device) if fold_clin_array is not None else torch.zeros((1, c_dim), device=device)
-            rna_tensor = torch.tensor(fold_rna_array, dtype=torch.float32).to(device) if fold_rna_array is not None else torch.zeros((1, m_dim), device=device)
-            wsi_tensor = torch.tensor(fold_wsi_array, dtype=torch.float32).to(device) if fold_wsi_array is not None else torch.zeros((1, w_dim), device=device)
+            clin_tensor = torch.tensor(fold_clin_array, dtype=torch.float32).to(device) if c_dim > 0 else None
+            rna_tensor  = torch.tensor(fold_rna_array, dtype=torch.float32).to(device) if r_dim > 0 else None
+            wsi_tensor  = torch.tensor(fold_wsi_array, dtype=torch.float32).to(device) if w_dim > 0 else None
 
             model.load_state_dict(torch.load(model_path, map_location=device))
             model.eval()
@@ -147,13 +143,17 @@ def inference(test_case_ids):
 
         if not pmf_all_folds:
             raise RuntimeError("No models loaded for ensemble inference.")
+        
+        assert all(p.shape == pmf_all_folds[0].shape for p in pmf_all_folds), \
+            "Mismatch in PMF shape across folds!"
 
         avg_pmf = np.mean(pmf_all_folds, axis=0)
+
     else: ## This is not updated and shold not be used at the moment.
         # Load best run info
         best_run_path = os.path.join(GLOBAL_DIR, "best_run.json")
         if not os.path.exists(best_run_path):
-            raise FileNotFoundError(f"Missing best_run.json. Please train models first.")
+            raise FileNotFoundError(f"Missing {best_run_path}. Please train models first.")
         with open(best_run_path, "r") as f:
             best_run_info = json.load(f)
 
@@ -164,9 +164,9 @@ def inference(test_case_ids):
         model_path = os.path.join(GLOBAL_DIR, f"best_model_run{best_run}_fold{best_fold}.pt")
         print(f"Using best single model: Run {best_run}, Fold {best_fold}, {model_path}")
 
-        test_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, run=0, fold=best_fold-1) if USE_CLINICAL_FEATURES else (None, None)
-        test_rna_array, _ = maybe_scale("rna", test_rna_array, test_rna_array, fit=False, run=0, fold=best_fold-1) if USE_RNA_FEATURES else (None, None)
-        test_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array, fit=False, run=0, fold=best_fold-1) if USE_WSI_FEATURES else (None, None)
+        test_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, run=0, fold=best_fold) if USE_CLINICAL_FEATURES else (None, None)
+        test_rna_array, _ = maybe_scale("rna", test_rna_array, test_rna_array, fit=False, run=0, fold=best_fold) if USE_RNA_FEATURES else (None, None)
+        test_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array, fit=False, run=0, fold=best_fold) if USE_WSI_FEATURES else (None, None)
 
         if test_clin_array is not None and test_clin_array.ndim == 1:
             test_clin_array = test_clin_array.reshape(1, -1)
@@ -175,9 +175,9 @@ def inference(test_case_ids):
         if test_wsi_array is not None and test_wsi_array.ndim == 1:
             test_wsi_array = test_wsi_array.reshape(1, -1)
 
-        clin_tensor = torch.tensor(test_clin_array, dtype=torch.float32).to(device) if test_clin_array is not None else torch.zeros((1, c_dim), device=device)
-        rna_tensor = torch.tensor(test_rna_array, dtype=torch.float32).to(device) if test_rna_array is not None else torch.zeros((1, m_dim), device=device)
-        wsi_tensor = torch.tensor(test_wsi_array, dtype=torch.float32).to(device) if test_wsi_array is not None else torch.zeros((1, w_dim), device=device)
+        clin_tensor = torch.tensor(fold_clin_array, dtype=torch.float32).to(device) if c_dim > 0 else None
+        rna_tensor  = torch.tensor(fold_rna_array, dtype=torch.float32).to(device) if r_dim > 0 else None
+        wsi_tensor  = torch.tensor(fold_wsi_array, dtype=torch.float32).to(device) if w_dim > 0 else None
 
         model.load_state_dict(torch.load(model_path, map_location=device))
         model.eval()
@@ -194,7 +194,9 @@ def inference(test_case_ids):
 
     ##Expected time = sum_t p(t) * t
     time_bins = np.arange(TIME_BINS)
+    #bin_edges = np.load(f"{GLOBAL_DIR}edges.npy")
     expected_times = np.sum(avg_pmf * time_bins[None, :], axis=1)
+    #expected_times = expected_time_from_pmf(avg_pmf, bin_edges)
 
     return dict(zip(test_case_ids, expected_times))
 
@@ -202,10 +204,16 @@ if __name__ == "__main__":
     os.makedirs(GLOBAL_DIR, exist_ok=True)
     ## Do inference on all the training set using an ensemble or the best of the 5 folds
     print("\n=== Step: Inference on entire training set ===")
-    
+
+    ## load held-out test set IDs
+    #test_df = pd.read_csv('/home/u1970167/chimera/task3/experiments/folds/test.csv')
+    #all_case_ids = test_df['Case_ID'].astype(str).tolist()
+
+    # load all the train set
     clinical_df = load_clinical()
     all_case_ids = clinical_df['Case_ID'].astype(str).tolist()
     #all_case_ids = all_case_ids[:1]   #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    
     predictions = inference(all_case_ids)
 
     # Save predictions
@@ -234,7 +242,7 @@ if __name__ == "__main__":
     ## sksurv concordance function expects a risk score but as the challenge expect the algorithms to return time-to-event therefore, their code negates the time-to-event so it becomes a risk score
     ## But if the algorithm is returning a risk score then it should be negated before hand so that the negation of their code is cancelled out and the risk score remains the risk score.
  
-    if SURVIVAL_MODEL == 'cox':
+    if SURVIVAL_MODEL == 'cox' or SURVIVAL_MODEL == 'deepsurv':
         preds = -preds
     
     c_index = concordance_index_censored( 

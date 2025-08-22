@@ -81,15 +81,15 @@ def maybe_reduce_rna(train_rna, val_rna, train_ids, val_ids, fit=True, fold=0):
 
     return train_rna, val_rna
 
-# def bin_durations(durations, bin_edges):
-#     durations_tensor = torch.tensor(durations, dtype=torch.float32)
-#     durations_bin = torch.bucketize(durations_tensor, bin_edges) - 1
-#     durations_bin = torch.clamp(durations_bin, 0, len(bin_edges) - 2)
-#     return durations_bin.numpy()  # convert back to numpy if needed
+def bin_durations(durations, bin_edges):
+    durations_tensor = torch.tensor(durations, dtype=torch.float32)
+    durations_bin = torch.bucketize(durations_tensor, bin_edges) - 1
+    durations_bin = torch.clamp(durations_bin, 0, len(bin_edges) - 2)
+    return durations_bin.numpy()  # convert back to numpy if needed
 
 def main():
     clinical_df = load_clinical()
-    clinical_dim = get_feature_dimensionalities(clinical_df)
+    #clinical_dim = get_feature_dimensionalities(clinical_df)
 
     y_event = clinical_df['event'].values
     case_ids = clinical_df['Case_ID'].astype(str).tolist()
@@ -104,8 +104,8 @@ def main():
     min_time = 5
     max_time = 250
     
-    #bin_edges = torch.linspace(min_time, max_time, steps=TIME_BINS+1)  # 31 edges for 30 bins
-    
+    bin_edges = torch.linspace(min_time, max_time, steps=TIME_BINS+1)  # 31 edges for 30 bins
+
     for run_num in range(RUNS):
         val_cindices = []
         for fold_idx in range(NUM_FOLDS):
@@ -160,18 +160,18 @@ def main():
                 if USE_WSI_FEATURES:
                     train_wsi_array, val_wsi_array = maybe_scale("wsi", train_wsi_array, val_wsi_array, fit=True, run=run_num, fold=fold_idx)
 
-            #train_durations = train_clinical['duration'].values
-            #train_durations_raw = train_clinical['duration'].values
-            #val_durations_raw = val_clinical['duration'].values
-            train_durations = train_clinical['duration'].values
-            val_durations = val_clinical['duration'].values
-
-            #train_durations = bin_durations(train_durations_raw, bin_edges)
-            #val_durations = bin_durations(val_durations_raw, bin_edges)
+            if BIN_EDGES:
+                train_durations_raw = train_clinical['duration'].values
+                val_durations_raw = val_clinical['duration'].values
+                train_durations = bin_durations(train_durations_raw, bin_edges)
+                val_durations = bin_durations(val_durations_raw, bin_edges)
+            else:
+                train_durations = train_clinical['duration'].values
+                val_durations = val_clinical['duration'].values
 
             train_events = train_clinical['event'].values
-            #val_durations = val_clinical['duration'].values
             val_events = val_clinical['event'].values
+
             # Print counts for training events
             print(f"Train - positives (1): {np.sum(train_events == 1)}, negatives (0): {np.sum(train_events == 0)}")
 
@@ -181,18 +181,36 @@ def main():
             train_dataset = SurvivalDataset(train_clin_array, train_rna_array, train_wsi_array, train_durations, train_events)
             val_dataset = SurvivalDataset(val_clin_array, val_rna_array, val_wsi_array, val_durations, val_events)
 
-            train_sampler = EventBalancedBatchSampler(events=train_events, batch_size=BATCH_SIZE, drop_last=False)
-            train_loader = DataLoader(train_dataset, batch_sampler=train_sampler)
-            val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, drop_last=False)
+            if FULL_BATCH:
+                train_batch_size = len(train_dataset)
+            else:
+                train_batch_size = BATCH_SIZE
 
-            c_dim = clinical_dim if USE_CLINICAL_FEATURES else 0
-            r_dim = RNA_DIM_REDUCE_TO if USE_RNA_FEATURES else 0
-            w_dim = WSI_FEATURE_DIM if USE_WSI_FEATURES else 0
+            #train_sampler = EventBalancedBatchSampler(events=train_events, batch_size=train_batch_size, drop_last=False)
+            #train_loader = DataLoader(train_dataset, batch_sampler=train_sampler)
+            val_loader = DataLoader(val_dataset, batch_size=train_batch_size, shuffle=False, drop_last=False)
 
-            model = MultimodalSurvivalModel(c_dim, r_dim, w_dim,
-                                            survival_model=SURVIVAL_MODEL,
-                                            fusion_type=FUSION_TYPE,
-                                            time_bins=TIME_BINS)
+            # main.py (where you build loaders)
+
+            if SURVIVAL_MODEL in ['cox', 'deepsurv']:
+                train_loader = DataLoader(train_dataset,
+                                        batch_size=len(train_dataset),
+                                        shuffle=False, drop_last=False)
+            else:
+                train_sampler = EventBalancedBatchSampler(events=train_events,
+                                                        batch_size=BATCH_SIZE,
+                                                        drop_last=False)
+                train_loader = DataLoader(train_dataset, batch_sampler=train_sampler)
+
+
+            # c_dim = clinical_dim if USE_CLINICAL_FEATURES else 0
+            # r_dim = RNA_DIM_REDUCE_TO if USE_RNA_FEATURES else 0
+            # w_dim = WSI_FEATURE_DIM if USE_WSI_FEATURES else 0
+            c_dim = train_clin_array.shape[1] if (USE_CLINICAL_FEATURES and train_clin_array is not None) else 0
+            r_dim = train_rna_array.shape[1] if (USE_RNA_FEATURES and train_rna_array   is not None) else 0
+            w_dim = train_wsi_array.shape[1] if (USE_WSI_FEATURES and train_wsi_array   is not None) else 0
+
+            model = MultimodalSurvivalModel(c_dim, r_dim, w_dim)
 
             model.to(device)
 

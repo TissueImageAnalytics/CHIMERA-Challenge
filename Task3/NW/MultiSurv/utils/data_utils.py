@@ -14,8 +14,7 @@ from sklearn.preprocessing import LabelEncoder
 def encode_clinical_features(df: pd.DataFrame) -> pd.DataFrame:
     mappings = {
         "sex": {"Male": 0, "Female": 1},
-        "tumor": {"Primary": 0},
-        "stage": {"T1HG": 1, "TaHG": 0},
+        "stage": {"TaHG": 0, "T1HG": 1, "T2HG": 2},
         "grade": {"G2": 2, "G3": 3},
         "reTUR": {"No": 0, "Yes": 1},
         "variant": {"UCC": 0, "UCC + Variant": 1},
@@ -29,6 +28,10 @@ def encode_clinical_features(df: pd.DataFrame) -> pd.DataFrame:
         if col in df_encoded.columns:
             df_encoded[col] = df_encoded[col].astype(str).str.strip()  # Remove extra whitespace
             df_encoded[col] = df_encoded[col].map(mapping)
+    
+    unmapped = df_encoded[col].isna().sum()
+    if unmapped > 0:
+        raise ValueError(f"{unmapped} values in column '{col}' could not be mapped. Please fix input data.")
 
     return df_encoded
 
@@ -48,7 +51,7 @@ def load_clinical():
     #clinical_df.to_csv('/home/u1970167/chimera/task3/clinical/features/after_coerce.csv')
 
     # Drop rows with any missing values in clinical features
-    clinical_df = clinical_df.dropna(subset=CLINICAL_FEATURES)
+    #clinical_df = clinical_df.dropna(subset=CLINICAL_FEATURES) ## remove this to see if any feature are not available in the Grand challenge folders
     clinical_df = clinical_df.reset_index(drop=True)
     return clinical_df
 
@@ -187,6 +190,6 @@ def create_folds(events, case_ids):
     return folds
 
 def get_feature_dimensionalities(clinical_df):
-    clinical_features = clinical_df.drop(columns=['Case_ID', 'duration', 'event'], errors='ignore')
+    clinical_features = clinical_df.drop(columns=['Case_ID', 'duration', 'event'])
     clinical_dim = clinical_features.shape[1]
     return clinical_dim
