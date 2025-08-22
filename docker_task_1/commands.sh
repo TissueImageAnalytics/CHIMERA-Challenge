@@ -84,7 +84,7 @@ cd /opt/app
 
 echo running TSR_inference.py
 exec python TSR_inference.py \
-  --fold 3 \
+  --fold 1 \
   --run 0 \
   --task 1 \
   --wsi_csv Features/Task1_Titan_10x_1024_grandqc_MaxPatch_embeddings.csv \

@@ -234,7 +234,7 @@ def main():
     # predict
     Z = model.decision_function(X)
 
-    return float(Z[0])
+    return float(Z[0]) + 1
 
 
 def write_json_file(*, location, content):

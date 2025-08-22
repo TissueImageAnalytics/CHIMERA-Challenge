@@ -45,13 +45,13 @@ if [ -d "${OUTPUT_DIR}/interface_0" ]; then
 
   echo "=+= Cleaning up any earlier output"
   # Use the container itself to circumvent ownership problems
-  # docker run --rm \
-  #     --platform=linux/amd64 \
-  #     --quiet \
-  #     --volume "${OUTPUT_DIR}/interface_0":/output \
-  #     --entrypoint /bin/sh \
-  #     $DOCKER_IMAGE_TAG \
-  #     -c "rm -rf /output/* || true"
+  docker run --rm \
+      --platform=linux/amd64 \
+      --quiet \
+      --volume "${OUTPUT_DIR}/interface_0":/output \
+      --entrypoint /bin/sh \
+      $DOCKER_IMAGE_TAG \
+      -c "rm -rf /output/* || true"
 else
   mkdir -p -m o+rwX "${OUTPUT_DIR}/interface_0"
 fi
