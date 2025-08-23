@@ -82,10 +82,5 @@ cd /opt/app
 # exec python clinical_only_inference.py
 # echo finished
 
-echo running TSR_inference.py
-exec python TSR_inference.py \
-  --fold 1 \
-  --run 0 \
-  --task 1 \
-  --wsi_csv Features/Task1_Titan_10x_1024_grandqc_MaxPatch_embeddings.csv \
-  --clinical_csv Features/task1_clinical.csv \
+echo running task1_final_1.py
+exec python task1_final_1.py

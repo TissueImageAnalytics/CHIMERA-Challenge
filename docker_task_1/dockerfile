@@ -36,12 +36,12 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 # RUN pip install tiatoolbox
 # RUN pip install pyvips
-# RUN pip install SimpleITK
 # RUN pip install numpy
 RUN pip install tiatoolbox
 RUN pip install scikit-learn==1.2.2
 RUN pip install numcodecs==0.15.1
-RUN pip install scikit-survival
+RUN pip install SimpleITK
+
 # RUN pip install timm==1.0.11
 # RUN pip install monai==1.4.0
 # RUN pip install --no-deps segmentation-models-pytorch==0.3.4
@@ -75,25 +75,25 @@ COPY --chown=user:user resources /opt/app/resources
 # COPY --chown=user:user task1_submission_clinical /opt/app/resources/task1_submission_clinical
 
 # Copy mri and survival model weights
-# COPY --chown=user:user weights_scalers_folder /opt/app/resources/weights_scalers_folder
+COPY --chown=user:user weights_scalers_folder /opt/app/resources/weights_scalers_folder
 
 # Copy code
 COPY --chown=user:user --chmod=0755 commands.sh /opt/app/
 # COPY --chown=user:user --chmod=0755 task_1_inference.py /opt/app/
 # COPY --chown=user:user --chmod=0755 convert_tissue_mask_for_trident.py /opt/app/
 # COPY --chown=user:user --chmod=0755 task_1_inference_614.py /opt/app/
-# COPY --chown=user:user --chmod=0755 task_1_inference_710.py /opt/app/
-# COPY --chown=user:user --chmod=0755 config710.py /opt/app/
-# COPY --chown=user:user --chmod=0755 data_utils.py /opt/app/
-# COPY --chown=user:user --chmod=0755 model710.py /opt/app/
+COPY --chown=user:user --chmod=0755 task1_final_1.py /opt/app/
+COPY --chown=user:user --chmod=0755 config_final_1.py /opt/app/
+COPY --chown=user:user --chmod=0755 data_utils_final_1.py /opt/app/
+COPY --chown=user:user --chmod=0755 model_final_1.py /opt/app/
 # COPY --chown=user:user --chmod=0755 resnet.py /opt/app/
 # COPY --chown=user:user --chmod=0755 clinical_only_inference.py /opt/app/
 # COPY --chown=user:user --chmod=0755 model.py /opt/app/
 # COPY --chown=user:user --chmod=0755 config.py /opt/app/
 
-COPY --chown=user:user --chmod=0755 TSR_inference.py /opt/app/
-COPY --chown=user:user --chmod=0755 TransductiveSR.py /opt/app/
-COPY --chown=user:user task1_titan_20250821_152156 /opt/app/resources/weights_scalers_folder
+# COPY --chown=user:user --chmod=0755 TSR_inference.py /opt/app/
+# COPY --chown=user:user --chmod=0755 TransductiveSR.py /opt/app/
+# COPY --chown=user:user task1_titan_20250821_152156 /opt/app/resources/weights_scalers_folder
 
 # Copy TITAN related weights
 COPY --chown=user:user --chmod=0755 titan /home/user/.cache/huggingface/modules/transformers_modules/titan
