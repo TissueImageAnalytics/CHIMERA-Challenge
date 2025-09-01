@@ -145,7 +145,7 @@ def inference():
     with open(best_run_path, "r") as f:
         best_run_info = json.load(f)
 
-    best_run = 8
+    best_run = 6
 
     pmf_all_folds = []
 
