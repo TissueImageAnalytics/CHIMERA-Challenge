@@ -73,7 +73,7 @@ def extract_clinical_vector(jsdata):
 
     # Ensure all values are numeric
     df_encoded = df_encoded.apply(pd.to_numeric, errors='coerce')
-
+ 
     # Check for missing values
     if df_encoded.isnull().any().any():
         missing_cols = df_encoded.columns[df_encoded.isnull().any()].tolist()
@@ -124,7 +124,7 @@ def inference():
     model.to(device)
 
 
-    best_run = 2
+    best_run = 4
 
     if USE_ENSEMBLE:
         pmf_all_folds = []
@@ -154,7 +154,7 @@ def inference():
             model.eval()
 
             with torch.no_grad():
-                out = model(clinical_feat=clin_tensor, rna_feat=rna_tensor, wsi_feat=wsi_tensor)
+                out = model(clinical_feat=clin_tensor, rna_feat=None, wsi_feat=None)
                 pmf_all_folds.append(out.cpu().numpy())
 
         if not pmf_all_folds:
@@ -178,8 +178,7 @@ def write_json_file(*, location, content):
 
 def generic_handler():      
 
-    # output_likelihood_of_bladder_cancer_recurrence = inference()
-    output_likelihood_of_bladder_cancer_recurrence = 1.0
+    output_likelihood_of_bladder_cancer_recurrence = inference()
 
     print(f"Predicted score: {output_likelihood_of_bladder_cancer_recurrence}")
 

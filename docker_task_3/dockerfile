@@ -41,6 +41,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
 RUN pip install tiatoolbox
 RUN pip install scikit-learn==1.6.1
 RUN pip install numcodecs==0.15.1
+# RUN pip install lifelines==0.30.0
 # RUN pip install timm==1.0.11
 # RUN pip install monai==1.4.0
 # RUN pip install --no-deps segmentation-models-pytorch==0.3.4
@@ -49,9 +50,9 @@ RUN pip install numcodecs==0.15.1
 # RUN pip install ttach==0.0.3
 
 # Copy TRIDENT code base then install it
-# COPY --chown=user:user --chmod=0755 TRIDENT /opt/app/TRIDENT
-# WORKDIR /opt/app/TRIDENT
-# RUN pip install -e .
+COPY --chown=user:user --chmod=0755 TRIDENT /opt/app/TRIDENT
+WORKDIR /opt/app/TRIDENT
+RUN pip install -e .
 # For Prism
 # RUN pip install environs==11.0.0
 # RUN pip install transformers==4.42.4
@@ -82,17 +83,19 @@ COPY --chown=user:user --chmod=0755 task3_commands.sh /opt/app/
 # COPY --chown=user:user --chmod=0755 convert_tissue_mask_for_trident.py /opt/app/
 # COPY --chown=user:user --chmod=0755 task3_inference_114.py /opt/app/
 # COPY --chown=user:user --chmod=0755 config114.py /opt/app/
-COPY --chown=user:user --chmod=0755 task3_inference_clinical.py /opt/app/
-COPY --chown=user:user --chmod=0755 config_clinical.py /opt/app/
+COPY --chown=user:user --chmod=0755 task3_inference_15.py /opt/app/
+COPY --chown=user:user --chmod=0755 config_15.py /opt/app/
+COPY --chown=user:user --chmod=0755 model_15.py /opt/app/
+COPY --chown=user:user --chmod=0755 data_utils_15.py /opt/app/
 # COPY --chown=user:user --chmod=0755 data_utils.py /opt/app/
-COPY --chown=user:user --chmod=0755 model.py /opt/app/
+# COPY --chown=user:user --chmod=0755 model.py /opt/app/
 # COPY --chown=user:user --chmod=0755 resnet.py /opt/app/
 # COPY --chown=user:user --chmod=0755 clinical_only_inference.py /opt/app/
 
 # Copy TITAN related weights
-# COPY --chown=user:user --chmod=0755 titan /home/user/.cache/huggingface/modules/transformers_modules/titan
-# COPY --chown=user:user --chmod=0755 resnet50-0676ba61.pth /home/user/.cache/torch/hub/checkpoints
-# COPY --chown=user:user --chmod=0755 hest_tissue_seg /opt/app/hest_tissue_seg
+COPY --chown=user:user --chmod=0755 titan /home/user/.cache/huggingface/modules/transformers_modules/titan
+COPY --chown=user:user --chmod=0755 resnet50-0676ba61.pth /home/user/.cache/torch/hub/checkpoints
+COPY --chown=user:user --chmod=0755 hest_tissue_seg /opt/app/hest_tissue_seg
 
 # Copy PRISM related weights
 # COPY --chown=user:user --chmod=0755 Prism /home/user/.cache/huggingface/modules/transformers_modules/prism
