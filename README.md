@@ -19,6 +19,7 @@ docker_task_1/clinical_only_inference.py
 docker_task_3/task3_inference_114.py
 ```
 
+learning rate=1e-3, optimizer=Adam, pre-trained weights=
 
 # AS Scripts for Task 1 (Old)
 My scripts require Python 3.11 along with:
