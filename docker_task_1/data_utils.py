@@ -1,12 +1,12 @@
-# import os
+import os
 import numpy as np
 import pandas as pd
-# from sklearn.model_selection import StratifiedKFold
-# from config614 import *
-# import glob
+from sklearn.model_selection import StratifiedKFold
+from config import *
+import glob
 
 import re
-# from config import MIXED_COLS, CLINICAL_CSV, EVENT_COLUMN, TIME_COLUMN, CLINICAL_FEATURES
+from config import MIXED_COLS, CLINICAL_CSV, EVENT_COLUMN, TIME_COLUMN, CLINICAL_FEATURES
 
 def convert_mixed_column_to_numeric(series):
     def parse_value(val):
@@ -23,27 +23,27 @@ def convert_mixed_column_to_numeric(series):
 
     return series.apply(parse_value)
 
-# def load_clinical():
-#     clinical_df = pd.read_csv(CLINICAL_CSV)
-#     clinical_df['Case_ID'] = clinical_df['Case_ID'].astype(str)
-#     clinical_df = clinical_df.dropna(subset=[EVENT_COLUMN, TIME_COLUMN])
+def load_clinical():
+    clinical_df = pd.read_csv(CLINICAL_CSV)
+    clinical_df['Case_ID'] = clinical_df['Case_ID'].astype(str)
+    clinical_df = clinical_df.dropna(subset=[EVENT_COLUMN, TIME_COLUMN])
 
-#     cols_to_use = ['Case_ID'] + CLINICAL_FEATURES + [EVENT_COLUMN, TIME_COLUMN]
-#     clinical_df = clinical_df[cols_to_use]
-#     clinical_df = clinical_df.rename(columns={EVENT_COLUMN: 'event', TIME_COLUMN: 'duration'})
+    cols_to_use = ['Case_ID'] + CLINICAL_FEATURES + [EVENT_COLUMN, TIME_COLUMN]
+    clinical_df = clinical_df[cols_to_use]
+    clinical_df = clinical_df.rename(columns={EVENT_COLUMN: 'event', TIME_COLUMN: 'duration'})
 
-#     # Convert mixed columns first
-#     for col in MIXED_COLS:
-#         if col in clinical_df.columns:
-#             clinical_df[col] = convert_mixed_column_to_numeric(clinical_df[col])
+    # Convert mixed columns first
+    for col in MIXED_COLS:
+        if col in clinical_df.columns:
+            clinical_df[col] = convert_mixed_column_to_numeric(clinical_df[col])
 
-#     # Convert remaining clinical features to numeric
-#     clinical_df[CLINICAL_FEATURES] = clinical_df[CLINICAL_FEATURES].apply(pd.to_numeric, errors='coerce')
+    # Convert remaining clinical features to numeric
+    clinical_df[CLINICAL_FEATURES] = clinical_df[CLINICAL_FEATURES].apply(pd.to_numeric, errors='coerce')
 
-#     # Drop rows with any missing values in clinical features
-#     clinical_df = clinical_df.dropna(subset=CLINICAL_FEATURES)
-#     clinical_df = clinical_df.reset_index(drop=True)
-#     return clinical_df
+    # Drop rows with any missing values in clinical features
+    clinical_df = clinical_df.dropna(subset=CLINICAL_FEATURES)
+    clinical_df = clinical_df.reset_index(drop=True)
+    return clinical_df
 
 # def load_mri_features(case_ids):
 #     feats = []
@@ -71,7 +71,7 @@ def convert_mixed_column_to_numeric(series):
 #     if missing and VERBOSE:
 #         print(f"⚠️ Warning: Missing MRI features for cases: {missing}")
 
-    # return np.stack(feats)
+    return np.stack(feats)
 
 def load_wsi_features(case_ids, csv_path="path/to/wsi_features.csv"):
     """
@@ -146,13 +146,6 @@ def load_wsi_features(case_ids, csv_path="path/to/wsi_features.csv"):
 #         folds_df.to_csv(FOLDS_CSV, index=False)
 #         print(f"Created and saved folds to {FOLDS_CSV}")
 #     return folds
-
-def load_radiomic_features(case_ids, csv_path):
-    df = pd.read_csv(csv_path)
-    df['Case_ID'] = df['Case_ID'].astype('str')
-    df = df[df['Case_ID'].isin(case_ids)].sort_values('Case_ID')
-    features = df.drop(columns=['Case_ID']).values
-    return features
 
 def get_feature_dimensionalities(clinical_df):
     clinical_features = clinical_df.drop(columns=['Case_ID', 'duration', 'event'], errors='ignore')

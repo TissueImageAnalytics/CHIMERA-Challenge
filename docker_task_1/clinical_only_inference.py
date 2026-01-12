@@ -50,17 +50,19 @@ def extract_clinical_vector(jsdata):
     # Wrap into a DataFrame for consistent preprocessing
     df = pd.DataFrame([features], columns=CLINICAL_FEATURES)
  
+    if df[CLINICAL_FEATURES].isnull().any().any():
+        # raise ValueError("Missing or invalid clinical feature(s) in JSON input")
+        df[CLINICAL_FEATURES] = df[CLINICAL_FEATURES].fillna(0)
+
     # Apply mixed column conversion
     for col in MIXED_COLS:
         if col in df.columns:
             df[col] = convert_mixed_column_to_numeric(df[col])
- 
+    
+    df[CLINICAL_FEATURES] = df[CLINICAL_FEATURES].replace("x", 0)
     # Convert all clinical features to numeric, coerce errors to NaN
     df[CLINICAL_FEATURES] = df[CLINICAL_FEATURES].apply(pd.to_numeric, errors='coerce')
  
-    if df[CLINICAL_FEATURES].isnull().any().any():
-        # raise ValueError("Missing or invalid clinical feature(s) in JSON input")
-        df[CLINICAL_FEATURES] = df[CLINICAL_FEATURES].fillna(0)
  
     return df.values.astype(np.float32)
  

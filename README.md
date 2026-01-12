@@ -6,7 +6,22 @@
 
 This repository is part of the TIA-Pegasus submission for the CHIMERA Challenge.
 
-# AS Scripts for Task 1
+
+# CHIMERA-Challenge Submission
+For model weights, Please email Noorul.Wahab@warwick.ac.uk.   
+## Task 1
+```
+docker_task_1/clinical_only_inference.py
+```
+
+## Task 2
+```
+docker_task_3/task3_inference_114.py
+```
+
+learning rate=1e-3, optimizer=Adam, pre-trained weights=
+
+# AS Scripts for Task 1 (Old)
 My scripts require Python 3.11 along with:
 tiatoolbox, pyradiomics, simpleitk, scikit-learn
 

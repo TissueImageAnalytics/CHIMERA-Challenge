@@ -35,6 +35,7 @@ def write_json_file(*, location, content):
     # Writes a json file
     with open(location, "w") as f:
         f.write(json.dumps(content, indent=4))
+        
 
 def get_or_fit_scaler(name, train_array, fit=True, fold=0):
     os.makedirs(SCALER_WEIGHTS_PATH, exist_ok=True)
