@@ -1,5 +1,3 @@
-# models/model.py
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,54 +14,72 @@ class ProjectionHead(nn.Module):
 
     def forward(self, x):
         return self.proj(x)
-    
-## Gated, instance-wise modality fusion
-class GatedModalityFusion(nn.Module):
+
+# ------------------ Fusion Strategies ------------------ #
+
+class GatedCrossModalFusion(nn.Module):
     """
-    For each modality we learn a small gating MLP that outputs a scalar in [0,1]
-    per sample. The fused vector is sum_i gate_i(x_i) * x_i.
-    input_dims: list of per-modality feature dims (after projection)
+    Combines sample-specific gating + cross-modal attention.
+    Clinical is used as the primary query modality.
     """
-    def __init__(self, input_dims, hidden_gate_dim=64):
+    def __init__(self, input_dims, hidden_dim=128):
         super().__init__()
         self.num_modalities = len(input_dims)
-        # Create one small gate MLP per modality
-        self.gates = nn.ModuleList()
-        for d in input_dims:
-            # small two-layer gate: d -> hidden_gate_dim -> 1 (sigmoid)
-            gate = nn.Sequential(
-                nn.Linear(d, max(d // 2, 8)),
-                nn.ReLU(inplace=True),
-                nn.Linear(max(d // 2, 8), 1),
+        self.hidden_dim = hidden_dim
+        
+        # Gating per modality
+        self.gates = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(d, 32),
+                nn.ReLU(),
+                nn.Linear(32, 1),
                 nn.Sigmoid()
-            )
-            self.gates.append(gate)
+            ) for d in input_dims
+        ])
+        
+        # Cross-modal attention (Clinical as Query)
+        self.query_proj = nn.Linear(input_dims[0], hidden_dim)  # Clinical
+        self.key_proj = nn.ModuleList([
+            nn.Linear(d, hidden_dim) for d in input_dims[1:]
+        ])
+        self.value_proj = nn.ModuleList([
+            nn.Linear(d, hidden_dim) for d in input_dims[1:]
+        ])
 
     def forward(self, features):
-        # features: list of tensors [B, D]
-        gated = []
-        # optional: collect gate values for monitoring if needed
-        for feat, gate_net in zip(features, self.gates):
-            g = gate_net(feat)  # [B,1]
-            gated.append(feat * g)  # [B,D]
-        fused = torch.stack(gated, dim=1).sum(dim=1)
-        return fused
+        # Step 1: Gating
+        gated = [f * g(f) for f, g in zip(features, self.gates)]
+        
+        # Step 2: Clinical as Query for Cross-Modal Attention
+        clinical = gated[0]
+        query = self.query_proj(clinical).unsqueeze(1)  # [B, 1, H]
 
-## linear layer after concat
-class LinearFusion(nn.Module):
+        keys = [proj(f) for proj, f in zip(self.key_proj, gated[1:])]
+        values = [proj(f) for proj, f in zip(self.value_proj, gated[1:])]
+        
+        if len(keys) > 0:
+            keys = torch.stack(keys, dim=1)      # [B, N_other, H]
+            values = torch.stack(values, dim=1)  # [B, N_other, H]
+            
+            attn = torch.softmax(
+                (query @ keys.transpose(-2, -1)) / (keys.size(-1) ** 0.5), dim=-1
+            )  # [B, 1, N_other]
+            fused_other = (attn @ values).squeeze(1)  # [B, H]
+            
+            return torch.cat([clinical, fused_other], dim=1)  # [B, 128+H]
+        else:
+            return clinical
+
+class ModalityAttentionFusion(nn.Module):
     def __init__(self, input_dims):
         super().__init__()
-        total_dim = sum(input_dims)
-        self.fc = nn.Linear(total_dim, max(input_dims))
+        self.weights = nn.Parameter(torch.ones(len(input_dims)))
 
     def forward(self, features):
-        concat = torch.cat(features, dim=1)
-        return self.fc(concat)
-
-## concat with no learnable params
-class SimpleConcatFusion(nn.Module):
-    def forward(self, features):
-        return torch.cat(features, dim=1)
+        stacked = torch.stack(features, dim=1)  # [B, N_modalities, D]
+        weights = torch.softmax(self.weights, dim=0)  # [N_modalities]
+        fused = (stacked * weights.view(1, -1, 1)).sum(dim=1)
+        return fused
 
 class CrossModalBlock(nn.Module):
     """Cross-attention block with residuals, FFN, and LayerNorm."""
@@ -181,6 +197,62 @@ class CrossAttentionFusion(nn.Module):
         fused = self.proj(fused)
         return fused
 
+class LinearFusion(nn.Module):
+    def __init__(self, input_dims):
+        super().__init__()
+        total_dim = sum(input_dims)
+        self.fc = nn.Linear(total_dim, max(input_dims))
+
+    def forward(self, features):
+        concat = torch.cat(features, dim=1)
+        return self.fc(concat)
+
+
+class SimpleConcatFusion(nn.Module):
+    def forward(self, features):
+        return torch.cat(features, dim=1)
+
+class GuidedModalityFusion(nn.Module):
+    """
+    Fusion where each modality predicts its own risk,
+    and those predictions are used to weight the features in fusion.
+    """
+    def __init__(self, input_dims, hidden_dim=128):
+        super().__init__()
+        self.num_modalities = len(input_dims)
+        
+        # Risk heads: MLPs for each modality
+        self.risk_heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(d, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, 1)
+            ) for d in input_dims
+        ])
+        
+        # Optional final fusion FC
+        self.fuse_fc = nn.Linear(input_dims[0], hidden_dim)  # you can change this to sum(input_dims)
+
+    def forward(self, features):
+        # Step 1: compute modality-specific risk scores
+        risks = [head(f) for head, f in zip(self.risk_heads, features)]  # [B,1] each
+        risk_scores = torch.cat(risks, dim=1)  # [B, num_modalities]
+
+        # Step 2: convert to independent weights via sigmoid
+        weights = torch.sigmoid(risk_scores)  # [B, num_modalities]
+
+        # Step 3: weight features
+        weighted_features = [
+            f * weights[:, i].unsqueeze(1) for i, f in enumerate(features)
+        ]
+
+        # Step 4: sum fuse and project
+        fused = torch.stack(weighted_features, dim=1).sum(dim=1)  # [B, D]
+        fused = self.fuse_fc(fused)
+        return fused
+
+# ------------------ Survival Heads ------------------ #
+
 class CoxHead(nn.Module):
     def __init__(self, in_dim):
         super().__init__()
@@ -212,24 +284,26 @@ class DeepSurvHead(nn.Module):
         assert out.shape[-1] == 1, f"Expected risk score shape [B,1], got {out.shape}"
         return out
 
+# ------------------ Multimodal Model ------------------ #
+
 # === Multimodal Survival Model ===
 class MultimodalSurvivalModel(nn.Module):
     def __init__(
         self,
         clin_dim=None,
-        rna_dim=None,
+        mri_dim=None,
         wsi_dim=None,
     ):
         super().__init__()
 
         self.clinical_proj = ProjectionHead(clin_dim, HIDDEN_DIM) if clin_dim > 0 else None
-        self.rna_proj = ProjectionHead(rna_dim, HIDDEN_DIM) if rna_dim > 0 else None
+        self.mri_proj = ProjectionHead(mri_dim, HIDDEN_DIM) if mri_dim > 0 else None
         self.wsi_proj = ProjectionHead(wsi_dim, HIDDEN_DIM) if wsi_dim > 0 else None
 
         input_dims = []
         if self.clinical_proj is not None:
             input_dims.append(HIDDEN_DIM)
-        if self.rna_proj is not None:
+        if self.mri_proj is not None:
             input_dims.append(HIDDEN_DIM)
         if self.wsi_proj is not None:
             input_dims.append(HIDDEN_DIM)
@@ -237,7 +311,7 @@ class MultimodalSurvivalModel(nn.Module):
         # Fusion strategy
         if FUSION_TYPE == "concat":
             fusion_dim = (HIDDEN_DIM if (clin_dim and clin_dim > 0) else 0) \
-                    + (HIDDEN_DIM if (rna_dim and rna_dim > 0) else 0) \
+                    + (HIDDEN_DIM if (mri_dim and mri_dim > 0) else 0) \
                     + (HIDDEN_DIM if (wsi_dim and wsi_dim > 0) else 0)
             self.fusion = nn.Identity()
         elif FUSION_TYPE == 'simple':
@@ -266,12 +340,12 @@ class MultimodalSurvivalModel(nn.Module):
         else:
             raise ValueError(f"Unknown survival model {SURVIVAL_MODEL}")
 
-    def forward(self, clinical_feat=None, rna_feat=None, wsi_feat=None):
+    def forward(self, clinical_feat=None, mri_feat=None, wsi_feat=None):
         features = []
         if clinical_feat is not None and self.clinical_proj is not None:
             features.append(self.clinical_proj(clinical_feat))
-        if rna_feat is not None and self.rna_proj is not None:
-            features.append(self.rna_proj(rna_feat))
+        if mri_feat is not None and self.mri_proj is not None:
+            features.append(self.mri_proj(mri_feat))
         if wsi_feat is not None and self.wsi_proj is not None:
             features.append(self.wsi_proj(wsi_feat))
 
@@ -284,108 +358,3 @@ class MultimodalSurvivalModel(nn.Module):
         fused = F.dropout(fused, p=self.fusion_dropout, training=self.training)
 
         return self.head(fused)
-    
-## modality confidence network
-class dis_MultimodalSurvivalModel(nn.Module):
-    def __init__(self, clin_dim, rna_dim, wsi_dim, fusion_type='linear', survival_model='cox', time_bins=30):
-        super().__init__()
-
-        self.clinical_proj = ProjectionHead(clin_dim, HIDDEN_DIM) if clin_dim > 0 else None
-        self.rna_proj = ProjectionHead(rna_dim, HIDDEN_DIM) if rna_dim > 0 else None
-        self.wsi_proj = ProjectionHead(wsi_dim, HIDDEN_DIM) if wsi_dim > 0 else None
-
-        # Modality-specific heads
-        if survival_model == 'cox':
-            self.clinical_head = CoxHead(HIDDEN_DIM) if self.clinical_proj is not None else None
-            self.rna_head = CoxHead(HIDDEN_DIM) if self.rna_proj is not None else None
-            self.wsi_head = CoxHead(HIDDEN_DIM) if self.wsi_proj is not None else None
-        else:
-            self.clinical_head = DeepHitHead(HIDDEN_DIM, time_bins) if self.clinical_proj is not None else None
-            self.rna_head = DeepHitHead(HIDDEN_DIM, time_bins) if self.rna_proj is not None else None
-            self.wsi_head = DeepHitHead(HIDDEN_DIM, time_bins) if self.wsi_proj is not None else None
-
-        # Confidence networks per modality (small MLP outputting [0,1])
-        def make_confidence_net():
-            return nn.Sequential(
-                nn.Linear(HIDDEN_DIM, HIDDEN_DIM//2),
-                nn.ReLU(inplace=True),
-                nn.Linear(HIDDEN_DIM//2, 1),
-                nn.Sigmoid()
-            )
-        self.clinical_confidence_net = make_confidence_net() if self.clinical_proj is not None else None
-        self.rna_confidence_net = make_confidence_net() if self.rna_proj is not None else None
-        self.wsi_confidence_net = make_confidence_net() if self.wsi_proj is not None else None
-
-        self.survival_model = survival_model
-        self.time_bins = time_bins
-
-    def forward(self, clinical_feat=None, rna_feat=None, wsi_feat=None):
-        device = next(self.parameters()).device
-
-        B = None
-        clinical_risk = None
-        rna_risk = None
-        wsi_risk = None
-        clinical_conf = None
-        rna_conf = None
-        wsi_conf = None
-
-        # Clinical branch
-        if self.clinical_proj is not None:
-            if clinical_feat is None:
-                B = wsi_feat.size(0) if wsi_feat is not None else 1
-                clinical_feat = torch.zeros(B, self.clinical_proj.proj[0].in_features, device=device)
-            else:
-                clinical_feat = clinical_feat.to(device)
-            clinical_emb = self.clinical_proj(clinical_feat)
-            clinical_risk = self.clinical_head(clinical_emb)  # [B, 1] or [B, time_bins]
-            clinical_conf = self.clinical_confidence_net(clinical_emb)  # [B,1]
-
-        # RNA branch
-        if self.rna_proj is not None:
-            if rna_feat is None:
-                B = rna_feat.size(0) if rna_feat is not None else 1
-                rna_feat = torch.zeros(B, self.rna_proj.proj[0].in_features, device=device)
-            else:
-                rna_feat = rna_feat.to(device)
-            rna_emb = self.rna_proj(rna_feat)
-            rna_risk = self.rna_head(rna_emb)  # [B,1] or [B, time_bins]
-            rna_conf = self.rna_confidence_net(rna_emb)  # [B,1]
-
-        # WSI branch
-        if self.wsi_proj is not None:
-            if wsi_feat is None:
-                B = clinical_feat.size(0) if clinical_feat is not None else 1
-                wsi_feat = torch.zeros(B, self.wsi_proj.proj[0].in_features, device=device)
-            else:
-                wsi_feat = wsi_feat.to(device)
-            wsi_emb = self.wsi_proj(wsi_feat)
-            wsi_risk = self.wsi_head(wsi_emb)  # [B,1] or [B, time_bins]
-            wsi_conf = self.wsi_confidence_net(wsi_emb)  # [B,1]
-
-        # Stack risks and confidences (only existing modalities)
-        risks = []
-        confs = []
-
-        if clinical_risk is not None:
-            risks.append(clinical_risk)
-            confs.append(clinical_conf)
-        if rna_risk is not None:
-            risks.append(rna_risk)
-            confs.append(rna_conf)
-        if wsi_risk is not None:
-            risks.append(wsi_risk)
-            confs.append(wsi_conf)
-
-        risks = torch.stack(risks, dim=1)  # [B, num_modalities, ...]
-        confs = torch.stack(confs, dim=1)  # [B, num_modalities, 1]
-
-        # Normalize confidence weights to sum to 1 per sample
-        confs_norm = confs / (confs.sum(dim=1, keepdim=True) + 1e-8)  # [B, num_modalities, 1]
-
-        # Weighted sum of risks
-        # For Cox: risks shape = [B, num_mod, 1], output shape [B,1]
-        # For DeepHit: risks shape = [B, num_mod, time_bins], weighted sum along dim=1
-        fused_risk = (risks * confs_norm).sum(dim=1)
-
-        return fused_risk

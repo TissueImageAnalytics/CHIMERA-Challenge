@@ -3,8 +3,7 @@ import numpy as np
 import pandas as pd
 import torch
 from config import *
-from utils.data_utils import load_clinical, load_rna_features, load_wsi_features, load_wsi_features_mult, encode_clinical_features
-#from utils.bins import expected_time_from_pmf
+from utils.data_utils import load_clinical, load_radiomic_features, load_mri_features, load_wsi_features, load_wsi_features_mult, get_feature_dimensionalities, convert_mixed_column_to_numeric
 from models.model import MultimodalSurvivalModel
 from sksurv.metrics import concordance_index_censored
 from sklearn.preprocessing import StandardScaler
@@ -30,36 +29,83 @@ def maybe_scale(name, train_array, val_array, fit=True, run=0, fold=0):
     val_scaled = scaler.transform(val_array) if val_array is not None else None
     return train_scaled, val_scaled
 
+def load_clinical_vectors_from_jsons(case_ids):
+    """
+    Given a list of case IDs, loads their clinical JSONs,
+    applies preprocessing (including mixed-column parsing),
+    and returns a NumPy array of shape (num_cases, num_features).
+    """
+    
+    all_vectors = []
+    for cid in sorted(case_ids):
+        json_path = os.path.join(CLINICAL_JSON_DIR, f"{cid}.json")
+        if not os.path.exists(json_path):
+            raise FileNotFoundError(f"Missing clinical JSON file for case: {cid}")
+
+        with open(json_path, "r") as f:
+            jsdata = json.load(f)
+
+        # Extract raw feature values
+        features = []
+        for feat in CLINICAL_FEATURES:
+            value = jsdata.get(feat, None)
+            features.append(value)
+
+        # Wrap into DataFrame for conversion
+        df = pd.DataFrame([features], columns=CLINICAL_FEATURES)
+
+        # Apply mixed column conversion
+        for col in MIXED_COLS:
+            if col in df.columns:
+                df[col] = convert_mixed_column_to_numeric(df[col])
+
+        # Convert to float
+        df[CLINICAL_FEATURES] = df[CLINICAL_FEATURES].apply(pd.to_numeric, errors='coerce')
+
+        if df[CLINICAL_FEATURES].isnull().any().any():
+            raise ValueError(f"Missing or non-numeric value in clinical features for case {cid}")
+
+        all_vectors.append(df.values[0])  # shape: (num_features,)
+
+    return np.stack(all_vectors)  # shape: (num_cases, num_features)
+
 def extract_clinical_vector(jsdata):
     """
-    Accepts a single JSON dict with clinical data.
-    Encodes categorical variables using same mappings as training,
-    handles numeric/mixed columns, and returns (1, num_features) float32 array.
+    Reads clinical features from a single JSON object (already loaded),
+    applies necessary preprocessing (including mixed column handling),
+    and returns a (1, num_features) float32 NumPy array.
     """
 
-    # Convert JSON into DataFrame
-    df = pd.DataFrame([jsdata], columns=CLINICAL_FEATURES)
+    # Extract raw feature values from JSON
+    features = [jsdata.get(feat, None) for feat in CLINICAL_FEATURES]
 
-    # Apply categorical encoding
-    df_encoded = encode_clinical_features(df)
+    # Wrap into a DataFrame for consistent preprocessing
+    df = pd.DataFrame([features], columns=CLINICAL_FEATURES)
 
-    # Ensure all values are numeric
-    df_encoded = df_encoded.apply(pd.to_numeric, errors='coerce')
+    # Apply mixed column conversion
+    for col in MIXED_COLS:
+        if col in df.columns:
+            df[col] = convert_mixed_column_to_numeric(df[col])
 
-    # Check for missing values
-    if df_encoded.isnull().any().any():
-        missing_cols = df_encoded.columns[df_encoded.isnull().any()].tolist()
-        raise ValueError(f"Missing or invalid clinical feature(s) in JSON input: {missing_cols}")
+    # Convert all clinical features to numeric, coerce errors to NaN
+    df[CLINICAL_FEATURES] = df[CLINICAL_FEATURES].apply(pd.to_numeric, errors='coerce')
 
-    return df_encoded.values.astype(np.float32)
+    if df[CLINICAL_FEATURES].isnull().any().any():
+        raise ValueError("Missing or invalid clinical feature(s) in JSON input")
+
+    return df.values.astype(np.float32)
 
 def inference(test_case_ids):
+   
     # Load clinical data and get feature dims
     clinical_df = load_clinical()
+    valid_cases = set(clinical_df['Case_ID'])
     #clinical_dim = get_feature_dimensionalities(clinical_df)
 
     # Sort test case IDs to preserve consistent output order
     test_case_ids = sorted(test_case_ids)
+    # Restrict test_case_ids to only those with valid clinical data
+    test_case_ids = sorted(set(test_case_ids) & valid_cases)
 
     # Get input arrays
     test_clinical = clinical_df[clinical_df['Case_ID'].isin(test_case_ids)].sort_values('Case_ID')
@@ -68,33 +114,42 @@ def inference(test_case_ids):
 
     #### for single case from clincal json @@@@@@@@@@@@@@@@@@@@@@@@@@
     if INFER_SINGLE:
+        
         test_case = os.listdir(CLINICAL_JSON_DIR)[0]
-        input_chimera_clinical_data_of_prostate_cancer_patients = f"{CLINICAL_JSON_DIR}/{test_case}/{test_case}_CD.json"
+        input_chimera_clinical_data_of_prostate_cancer_patients = f"{CLINICAL_JSON_DIR}/{test_case}"
         with open(input_chimera_clinical_data_of_prostate_cancer_patients, "r") as f:
            jsdata = json.load(f)
 
         test_clin_array = extract_clinical_vector(jsdata)
         
-        ## ToDo: change the RNA and WSI feature loading to challenge format
+        ## ToDo: change the MRI and WSI feature loading to challenge format
         ## Temp work around: change the test_case_ids as in the next line
         test_case_ids = [test_case.split('.json')[0]]
-    
-    test_rna_array = load_rna_features(test_case_ids) if USE_RNA_FEATURES else None
+
+    if USE_RADIOMIC_FEATURES:
+        test_radiomic_array = load_radiomic_features(test_case_ids, csv_path=RADIOMIC_CSV)
+
+    test_mri_array = load_mri_features(test_case_ids) if USE_MRI_FEATURES else None
 
     if AGGREG_CASE_WSI:
         test_wsi_array = load_wsi_features_mult(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
     else:
         test_wsi_array = load_wsi_features(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
-
+    
     # Feature dimensions
     c_dim = test_clin_array.shape[1] if (USE_CLINICAL_FEATURES and test_clin_array is not None) else 0
-    r_dim = test_rna_array.shape[1] if (USE_RNA_FEATURES and test_rna_array is not None) else 0
+    m_dim = test_mri_array.shape[1] if (USE_MRI_FEATURES and test_mri_array is not None) else 0
     w_dim = test_wsi_array.shape[1] if (USE_WSI_FEATURES and test_wsi_array is not None) else 0
+
+    r_dim = test_radiomic_array.shape[1] if (USE_RADIOMIC_FEATURES and test_radiomic_array is not None) else 0
+    
+    if r_dim > 0:
+        c_dim += r_dim
 
     # Prepare model template
     model = MultimodalSurvivalModel(
         clin_dim=c_dim,
-        rna_dim=r_dim,
+        mri_dim=m_dim,
         wsi_dim=w_dim,
     )
 
@@ -103,7 +158,7 @@ def inference(test_case_ids):
 
     best_run_path = os.path.join(GLOBAL_DIR, "best_run.json")
     if not os.path.exists(best_run_path):
-        raise FileNotFoundError(f"Missing {best_run_path}. Please train models first.")
+        raise FileNotFoundError(f"Missing best_run.json. Please train models first.")
     with open(best_run_path, "r") as f:
         best_run_info = json.load(f)
 
@@ -121,40 +176,48 @@ def inference(test_case_ids):
                 continue
 
             fold_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, run=best_run, fold=fold_idx) if USE_CLINICAL_FEATURES else (None, None)
-            fold_rna_array, _ = maybe_scale("rna", test_rna_array, test_rna_array, fit=False, run=best_run, fold=fold_idx) if USE_RNA_FEATURES else (None, None)
+            fold_radi_array, _ = maybe_scale("radiomic", test_radiomic_array, test_radiomic_array, fit=False, run=best_run, fold=fold_idx) if USE_RADIOMIC_FEATURES else (None, None)
+
+            # Concatenate radiomic features to clinical AFTER scaling
+            if USE_RADIOMIC_FEATURES:
+                if fold_clin_array is not None:
+                    fold_clin_array = np.concatenate([fold_clin_array, fold_radi_array], axis=1)
+                else:
+                    fold_clin_array = fold_radi_array
+
+            fold_mri_array, _ = maybe_scale("mri", test_mri_array, test_mri_array, fit=False, run=best_run, fold=fold_idx) if USE_MRI_FEATURES else (None, None)
             fold_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array, fit=False, run=best_run, fold=fold_idx) if USE_WSI_FEATURES else (None, None)
 
             if fold_clin_array is not None and fold_clin_array.ndim == 1:
                 fold_clin_array = fold_clin_array.reshape(1, -1)
-            if fold_rna_array is not None and fold_rna_array.ndim == 1:
-                fold_rna_array = fold_rna_array.reshape(1, -1)
+            if fold_mri_array is not None and fold_mri_array.ndim == 1:
+                fold_mri_array = fold_mri_array.reshape(1, -1)
             if fold_wsi_array is not None and fold_wsi_array.ndim == 1:
                 fold_wsi_array = fold_wsi_array.reshape(1, -1)
 
-            clin_tensor = torch.tensor(fold_clin_array, dtype=torch.float32).to(device) if c_dim > 0 else None
-            rna_tensor = torch.tensor(fold_rna_array, dtype=torch.float32).to(device) if r_dim > 0 else None
-            wsi_tensor = torch.tensor(fold_wsi_array, dtype=torch.float32).to(device) if w_dim > 0 else None
+            clin_tensor = torch.tensor(fold_clin_array, dtype=torch.float32).to(device) if fold_clin_array is not None else torch.zeros((1, c_dim), device=device)
+            mri_tensor = torch.tensor(fold_mri_array, dtype=torch.float32).to(device) if fold_mri_array is not None else torch.zeros((1, m_dim), device=device)
+            wsi_tensor = torch.tensor(fold_wsi_array, dtype=torch.float32).to(device) if fold_wsi_array is not None else torch.zeros((1, w_dim), device=device)
 
             model.load_state_dict(torch.load(model_path, map_location=device))
             model.eval()
 
             with torch.no_grad():
-                out = model(clinical_feat=clin_tensor, rna_feat=rna_tensor, wsi_feat=wsi_tensor)
+                out = model(clinical_feat=clin_tensor, mri_feat=mri_tensor, wsi_feat=wsi_tensor)
                 pmf_all_folds.append(out.cpu().numpy())
 
         if not pmf_all_folds:
             raise RuntimeError("No models loaded for ensemble inference.")
-        
+
         assert all(p.shape == pmf_all_folds[0].shape for p in pmf_all_folds), \
             "Mismatch in PMF shape across folds!"
 
         avg_pmf = np.mean(pmf_all_folds, axis=0)
-
     else: ## This is not updated and shold not be used at the moment.
         # Load best run info
         best_run_path = os.path.join(GLOBAL_DIR, "best_run.json")
         if not os.path.exists(best_run_path):
-            raise FileNotFoundError(f"Missing {best_run_path}. Please train models first.")
+            raise FileNotFoundError(f"Missing best_run.json. Please train models first.")
         with open(best_run_path, "r") as f:
             best_run_info = json.load(f)
 
@@ -165,26 +228,26 @@ def inference(test_case_ids):
         model_path = os.path.join(GLOBAL_DIR, f"best_model_run{best_run}_fold{best_fold}.pt")
         print(f"Using best single model: Run {best_run}, Fold {best_fold}, {model_path}")
 
-        test_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, run=0, fold=best_fold) if USE_CLINICAL_FEATURES else (None, None)
-        test_rna_array, _ = maybe_scale("rna", test_rna_array, test_rna_array, fit=False, run=0, fold=best_fold) if USE_RNA_FEATURES else (None, None)
-        test_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array, fit=False, run=0, fold=best_fold) if USE_WSI_FEATURES else (None, None)
+        test_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, run=0, fold=best_fold-1) if USE_CLINICAL_FEATURES else (None, None)
+        test_mri_array, _ = maybe_scale("mri", test_mri_array, test_mri_array, fit=False, run=0, fold=best_fold-1) if USE_MRI_FEATURES else (None, None)
+        test_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array, fit=False, run=0, fold=best_fold-1) if USE_WSI_FEATURES else (None, None)
 
         if test_clin_array is not None and test_clin_array.ndim == 1:
             test_clin_array = test_clin_array.reshape(1, -1)
-        if test_rna_array is not None and test_rna_array.ndim == 1:
-            test_rna_array = test_rna_array.reshape(1, -1)
+        if test_mri_array is not None and test_mri_array.ndim == 1:
+            test_mri_array = test_mri_array.reshape(1, -1)
         if test_wsi_array is not None and test_wsi_array.ndim == 1:
             test_wsi_array = test_wsi_array.reshape(1, -1)
 
-        clin_tensor = torch.tensor(fold_clin_array, dtype=torch.float32).to(device) if c_dim > 0 else None
-        rna_tensor  = torch.tensor(fold_rna_array, dtype=torch.float32).to(device) if r_dim > 0 else None
-        wsi_tensor  = torch.tensor(fold_wsi_array, dtype=torch.float32).to(device) if w_dim > 0 else None
+        clin_tensor = torch.tensor(test_clin_array, dtype=torch.float32).to(device) if test_clin_array is not None else torch.zeros((1, c_dim), device=device)
+        mri_tensor = torch.tensor(test_mri_array, dtype=torch.float32).to(device) if test_mri_array is not None else torch.zeros((1, m_dim), device=device)
+        wsi_tensor = torch.tensor(test_wsi_array, dtype=torch.float32).to(device) if test_wsi_array is not None else torch.zeros((1, w_dim), device=device)
 
         model.load_state_dict(torch.load(model_path, map_location=device))
         model.eval()
 
         with torch.no_grad():
-            avg_pmf = model(clinical_feat=clin_tensor, rna_feat=rna_tensor, wsi_feat=wsi_tensor)[0].cpu().numpy()
+            avg_pmf = model(clinical_feat=clin_tensor, mri_feat=mri_tensor, wsi_feat=wsi_tensor)[0].cpu().numpy()
 
     ## to test with a single json clinical file
     if INFER_SINGLE:
@@ -195,9 +258,7 @@ def inference(test_case_ids):
 
     ##Expected time = sum_t p(t) * t
     time_bins = np.arange(TIME_BINS)
-    #bin_edges = np.load(f"{GLOBAL_DIR}edges.npy")
     expected_times = np.sum(avg_pmf * time_bins[None, :], axis=1)
-    #expected_times = expected_time_from_pmf(avg_pmf, bin_edges)
 
     return dict(zip(test_case_ids, expected_times))
 
@@ -205,9 +266,9 @@ if __name__ == "__main__":
     os.makedirs(GLOBAL_DIR, exist_ok=True)
     ## Do inference on all the training set using an ensemble or the best of the 5 folds
     print("\n=== Step: Inference on entire training set ===")
-
+    
     ## load held-out test set IDs
-    #test_df = pd.read_csv('/home/u1970167/chimera/task3/experiments/folds/test.csv')
+    #test_df = pd.read_csv('/home/u1970167/chimera/task1/experiments/folds/test.csv')
     #all_case_ids = test_df['Case_ID'].astype(str).tolist()
 
     # load all the train set
@@ -236,7 +297,6 @@ if __name__ == "__main__":
     clinical_df_sorted = clinical_df[clinical_df['Case_ID'].isin(all_case_ids)].sort_values('Case_ID')
     durations = clinical_df_sorted['duration'].values
     events = clinical_df_sorted['event'].values
-    print(clinical_df_sorted.head(5))
     preds = np.array([predictions[cid] for cid in clinical_df_sorted['Case_ID'].tolist()])
 
     # Compute C-index

@@ -9,9 +9,9 @@ import random
 
 # ===== Dataset for torch =====
 class SurvivalDataset(Dataset):
-    def __init__(self, clin_array, rna_array, wsi_array, durations, events):
+    def __init__(self, clin_array, mri_array, wsi_array, durations, events):
         self.clin_array = clin_array
-        self.rna_array = rna_array
+        self.mri_array = mri_array
         self.wsi_array = wsi_array
         self.durations = durations
         self.events = events
@@ -21,13 +21,13 @@ class SurvivalDataset(Dataset):
 
     def __getitem__(self, idx):
         clin = self.clin_array[idx] if self.clin_array is not None else np.zeros(0, dtype=np.float32)
-        rna = self.rna_array[idx] if self.rna_array is not None else np.zeros(0, dtype=np.float32)
+        mri = self.mri_array[idx] if self.mri_array is not None else np.zeros(0, dtype=np.float32)
         wsi = self.wsi_array[idx] if self.wsi_array is not None else np.zeros(0, dtype=np.float32)
         duration = self.durations[idx]
         event = self.events[idx]
         return (
             torch.tensor(clin, dtype=torch.float32),
-            torch.tensor(rna, dtype=torch.float32),
+            torch.tensor(mri, dtype=torch.float32),
             torch.tensor(wsi, dtype=torch.float32),
             torch.tensor(duration, dtype=torch.float32),
             torch.tensor(event, dtype=torch.float32),
@@ -210,23 +210,61 @@ def deephit_loss_uncensored(pred, durations, events, alpha=0.5, time_bins=TIME_B
         return total_loss, likelihood_loss, rank_loss
     else:
         return total_loss
+    
+def multimodal_loss(predictions, durations, events, survival_model="cox"):
+    """
+    predictions: model output
+    durations: observed durations (time to event or censoring)
+    events: 1 if event occurred, 0 if censored
+    """
+    if survival_model == "cox":
+        # Cox partial likelihood loss (negative)
+        risk = predictions.view(-1)
+        # Sort by descending time
+        order = torch.argsort(durations, descending=True)
+        risk_sorted = risk[order]
+        events_sorted = events[order]
+
+        # Compute log partial likelihood
+        exp_risk = torch.exp(risk_sorted)
+        log_cum_sum = torch.log(torch.cumsum(exp_risk, dim=0))
+        log_likelihood = risk_sorted - log_cum_sum
+        neg_partial_ll = -torch.sum(log_likelihood * events_sorted) / torch.sum(events_sorted)
+        return neg_partial_ll
+
+    elif survival_model == "nnet_survival":
+        # Assume predictions are raw logits for time_bins
+        # Use negative log-likelihood of survival probability
+        probs = torch.sigmoid(predictions)
+        eps = 1e-8
+        loss = 0.0
+        for i in range(len(durations)):
+            t = int(durations[i].item())
+            e = events[i].item()
+            if e == 1:
+                loss -= torch.log(probs[i, t] + eps)
+            else:
+                loss -= torch.log(1 - probs[i, t] + eps)
+        return loss / len(durations)
+    else:
+        raise ValueError(f"Unsupported survival model: {survival_model}")
 
 # ===== Inference for expected event time =====
-def infer_time(model, clin, rna):
+def infer_time(model, clin, mri):
     with torch.no_grad():
-        out = model(clinical_feat=clin, rna_feat=rna)
+        out = model(clinical_feat=clin, mri_feat=mri)
         time_points = torch.arange(out.size(1), device=out.device).float()
         expected_time = torch.sum(out * time_points, dim=1)
         return expected_time
 
-def modality_dropout(clin_feat, rna_feat, wsi_feat, drop_probs=(CLINICAL_DROPOUT, RNA_DROPOUT, WSI_DROPOUT)):
+def modality_dropout(clin_feat, mri_feat, wsi_feat, drop_probs=(CLINICAL_DROPOUT, MRI_DROPOUT, WSI_DROPOUT)):
     if clin_feat is not None and random.random() < drop_probs[0]:
         clin_feat = torch.zeros_like(clin_feat)
-    if rna_feat is not None and random.random() < drop_probs[1]:
-        rna_feat = torch.zeros_like(rna_feat)
+    if mri_feat is not None and random.random() < drop_probs[1]:
+        mri_feat = torch.zeros_like(mri_feat)
     if wsi_feat is not None and random.random() < drop_probs[2]:
         wsi_feat = torch.zeros_like(wsi_feat)
-    return clin_feat, rna_feat, wsi_feat
+    return clin_feat, mri_feat, wsi_feat
 
 # ===== Training Loop =====
 def train_one_epoch(model, dataloader, optimizer, survival_model, device):
@@ -234,37 +272,21 @@ def train_one_epoch(model, dataloader, optimizer, survival_model, device):
     total_loss = 0.0
     count = 0
 
-    for clin, rna, wsi, duration, event in dataloader:
-        clin, rna, wsi, duration, event = (
+    for clin, mri, wsi, duration, event in dataloader:
+        clin, mri, wsi, duration, event = (
             clin.to(device),
-            rna.to(device),
+            mri.to(device),
             wsi.to(device),
             duration.to(device),
             event.to(device),
         )
 
         optimizer.zero_grad()
-        
+
         if DROP_MODALITY:
-            clin, rna, wsi = modality_dropout(clin_feat=clin, rna_feat=rna, wsi_feat=wsi)
+            clin, mri, wsi = modality_dropout(clin_feat=clin, mri_feat=mri, wsi_feat=wsi)
 
-        outputs = model(clinical_feat=clin, rna_feat=rna, wsi_feat=wsi)
-
-        for i in range(min(5, outputs.size(0))):
-            #print(f"Sample {i}:")
-            #print(f" Event time bin: {duration[i].item()}")
-            #print(f" Event observed: {event[i].item()}")
-            #print(f" Predicted PMF: {outputs[i].detach().cpu().numpy()}")
-            pass
-
-        pmf_sums = outputs.sum(dim=1)
-        #print("PMF sums min/max:", pmf_sums.min().item(), pmf_sums.max().item())
-
-        min_val = outputs.min().item()
-        # if min_val < 0:
-        #     print("Warning: Negative probabilities in predictions!")
-        # if (pmf_sums < 0.99).any() or (pmf_sums > 1.01).any():
-        #     print("Warning: PMF sums not close to 1")
+        outputs = model(clinical_feat=clin, mri_feat=mri, wsi_feat=wsi)
 
         if survival_model in ("cox", "deepsurv"):
             loss = cox_loss(outputs, duration, event)
@@ -308,15 +330,15 @@ def evaluate(model, dataloader, survival_model, device):
     all_durations = []
 
     with torch.no_grad():
-        for clin, rna, wsi, duration, event in dataloader:
+        for clin, mri, wsi, duration, event in dataloader:
             clin = clin.to(device)
-            rna = rna.to(device)
+            mri = mri.to(device)
             wsi = wsi.to(device)
             duration = duration.to(device)
             event = event.to(device)
-            #clin, rna, wsi = modality_dropout(clin_feat=clin, rna_feat=rna, wsi_feat=wsi)
-            output = model(clinical_feat=clin, rna_feat=rna, wsi_feat=wsi) 
-
+            clin, mri, wsi = modality_dropout(clin_feat=clin, mri_feat=mri, wsi_feat=wsi)
+            output = model(clinical_feat=clin, mri_feat=mri, wsi_feat=wsi)
+            
             if survival_model in ("cox", "deepsurv"):
                 preds = output.squeeze()
             elif survival_model == 'deephit':
@@ -330,12 +352,10 @@ def evaluate(model, dataloader, survival_model, device):
             all_events.append(event.cpu())
             all_durations.append(duration.cpu())
 
+
     all_preds = torch.cat(all_preds).numpy()
     all_durations = torch.cat(all_durations).numpy()
     all_events = torch.cat(all_events).numpy()
-
-    if survival_model in ("cox", "deepsurv"):
-        all_preds = -all_preds
 
     c_index = concordance_index_censored(
         all_events.astype(bool),

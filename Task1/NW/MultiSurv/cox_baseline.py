@@ -131,7 +131,7 @@ def inference_ensemble(df, feature_cols, fold_count=NUM_FOLDS):
     return c_index
 
 
-def main(mode="train"):
+def main(mode="train", clinical_df=None):
     """
     Main entry point to either train or infer.
     mode: 'train' or 'inference'
@@ -142,7 +142,13 @@ def main(mode="train"):
 
     elif mode == "inference":
         print("Starting inference using ensemble of 5 folds on entire dataset...")
-        inference_ensemble(clinical_df, CLINICAL_FEATURES, fold_count=len(fold_indices))
+        ## if testing on the hold out set change the clinical_df to test set only, as done in the next three lines
+        test_df = pd.read_csv('/home/u1970167/chimera/task3/experiments/folds/test.csv')
+        test_case_ids = test_df['Case_ID'].astype(str).tolist()
+        
+        clinical_df = clinical_df[clinical_df['Case_ID'].isin(test_case_ids)]
+
+        inference_ensemble(clinical_df, fold_count=len(fold_indices))
 
     else:
         raise ValueError("Invalid mode! Use 'train' or 'inference'.")
@@ -150,4 +156,4 @@ def main(mode="train"):
 if __name__ == "__main__":
     mode = 'train' # 'train' | 'inference'
     
-    main(mode)
+    main(mode, clinical_df)
