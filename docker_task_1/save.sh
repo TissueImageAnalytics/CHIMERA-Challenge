@@ -6,7 +6,7 @@ set -e
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # Set default container name
-DOCKER_IMAGE_TAG="tia-pegasus-prostate-cancer-biochemical-recurrence-prediction"
+DOCKER_IMAGE_TAG="tia-pegasus-task-1-post-challenge-clinv2-wsi"
 
 echo "=+= (Re)build the container"
 source "${SCRIPT_DIR}/build.sh"

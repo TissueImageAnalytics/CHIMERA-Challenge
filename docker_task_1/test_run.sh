@@ -7,7 +7,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 echo SCRIPT_DIR: "$SCRIPT_DIR"
 
-DOCKER_IMAGE_TAG="tia-pegasus-prostate-cancer-biochemical-recurrence-prediction"
+DOCKER_IMAGE_TAG="tia-pegasus-task-1-post-challenge-clinv2-wsi"
 
 DOCKER_NOOP_VOLUME="${DOCKER_IMAGE_TAG}-volume"
 
