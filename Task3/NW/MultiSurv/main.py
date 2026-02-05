@@ -52,13 +52,13 @@ def maybe_scale(name, train_array, val_array, fit=True, run=0, fold=0):
     val_scaled = scaler.transform(val_array) if val_array is not None else None
     return train_scaled, val_scaled
 
-def maybe_reduce_rna(train_rna, val_rna, train_ids, val_ids, fit=True, fold=0):
+def maybe_reduce_rna(train_rna, val_rna, fit=True, run=0, fold=0):
     os.makedirs(GLOBAL_DIR, exist_ok=True)
     
-    pca_path = os.path.join(GLOBAL_DIR, f"rna_pca_{fold}.pkl")
-    train_path = os.path.join(GLOBAL_DIR, f"reduced_rna_fold{fold}.npy")
-    val_path = os.path.join(GLOBAL_DIR, f"reduced_rna_val_fold{fold}.npy")
-    train_ids_path = os.path.join(GLOBAL_DIR, f"reduced_rna_ids_fold{fold}.csv")
+    pca_path = os.path.join(GLOBAL_DIR, f"rna_pca_run_{run}_{fold}.pkl")
+    train_path = os.path.join(GLOBAL_DIR, f"reduced_rna_train_{run}_fold{fold}.npy")
+    val_path = os.path.join(GLOBAL_DIR, f"reduced_rna_val_{run}_fold{fold}.npy")
+    #train_ids_path = os.path.join(GLOBAL_DIR, f"reduced_rna_ids_fold{fold}.csv")
 
     if fit:
         print(f" Fitting PCA on RNA train set (fold {fold})...")
@@ -72,7 +72,7 @@ def maybe_reduce_rna(train_rna, val_rna, train_ids, val_ids, fit=True, fold=0):
         # Save transformed train/val RNA for potential reuse or inspection
         np.save(train_path, train_rna)
         np.save(val_path, val_rna)
-        pd.DataFrame({'Case_ID': train_ids}).to_csv(train_ids_path, index=False)
+        #pd.DataFrame({'Case_ID': train_ids}).to_csv(train_ids_path, index=False)
     else:
         print(f" Loading saved reduced RNA features and PCA model for fold {fold}")
         pca = joblib.load(pca_path)
@@ -126,25 +126,15 @@ def main():
             if USE_RNA_FEATURES:
                 # Step 1: Scale RNA features (save/load scaler per fold)
                 train_rna_array, val_rna_array = maybe_scale(
-                    "rna", train_rna_array, val_rna_array, fit=True, fold=fold_idx
+                    "rna", train_rna_array, val_rna_array, fit=True, run=run_num, fold=fold_idx
                 )
 
                 # Step 2: Apply PCA on scaled RNA (save/load PCA model per fold)
                 if RNA_DIM_REDUCE_TO < RNA_FEATURE_DIM:
                     train_rna_array, val_rna_array = maybe_reduce_rna(
                         train_rna_array, val_rna_array,
-                        train_ids=train_clinical['Case_ID'].tolist(),
-                        val_ids=val_clinical['Case_ID'].tolist(),
-                        fit=True, fold=fold_idx
+                        fit=True, run=run_num, fold=fold_idx
                     )
-                # train_rna_array, val_rna_array = maybe_reduce_rna(
-                #     train_rna_array, val_rna_array,
-                #     train_ids=train_clinical['Case_ID'].tolist(),
-                #     val_ids=val_clinical['Case_ID'].tolist(),
-                #     fit=True, fold=fold_idx,
-                #     supervised=True,
-                #     top_k=500
-                # )
 
             # WSI features
             if AGGREG_CASE_WSI:
@@ -190,8 +180,6 @@ def main():
             #train_loader = DataLoader(train_dataset, batch_sampler=train_sampler)
             val_loader = DataLoader(val_dataset, batch_size=train_batch_size, shuffle=False, drop_last=False)
 
-            # main.py (where you build loaders)
-
             if SURVIVAL_MODEL in ['cox', 'deepsurv']:
                 train_loader = DataLoader(train_dataset,
                                         batch_size=len(train_dataset),
@@ -207,8 +195,8 @@ def main():
             # r_dim = RNA_DIM_REDUCE_TO if USE_RNA_FEATURES else 0
             # w_dim = WSI_FEATURE_DIM if USE_WSI_FEATURES else 0
             c_dim = train_clin_array.shape[1] if (USE_CLINICAL_FEATURES and train_clin_array is not None) else 0
-            r_dim = train_rna_array.shape[1] if (USE_RNA_FEATURES and train_rna_array   is not None) else 0
-            w_dim = train_wsi_array.shape[1] if (USE_WSI_FEATURES and train_wsi_array   is not None) else 0
+            r_dim = train_rna_array.shape[1] if (USE_RNA_FEATURES and train_rna_array is not None) else 0
+            w_dim = train_wsi_array.shape[1] if (USE_WSI_FEATURES and train_wsi_array is not None) else 0
 
             model = MultimodalSurvivalModel(c_dim, r_dim, w_dim)
 

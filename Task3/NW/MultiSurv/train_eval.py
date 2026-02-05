@@ -154,7 +154,7 @@ def deephit_loss_uncensored(pred, durations, events, alpha=0.5, time_bins=TIME_B
             print("Warning: very small predicted event probs causing large loss:", p_event[very_small_probs])
 
     if debug and torch.any(p_event <= 0):
-        print("🔴 Invalid event probabilities:", p_event[p_event <= 0])
+        print("Invalid event probabilities:", p_event[p_event <= 0])
     uncensored_loss = -safe_log(p_event)
     uncensored_loss = uncensored_loss[events]
 
@@ -162,7 +162,7 @@ def deephit_loss_uncensored(pred, durations, events, alpha=0.5, time_bins=TIME_B
     cdf = torch.cumsum(pred, dim=1)
     survival_prob = torch.clamp(1.0 - cdf[idx, durations], min=1e-4)
     if debug and torch.any(survival_prob <= 0):
-        print("🔴 Invalid survival probabilities:", survival_prob[survival_prob <= 0])
+        print("Invalid survival probabilities:", survival_prob[survival_prob <= 0])
     censored_loss = -safe_log(survival_prob)
     censored_loss = censored_loss[~events]
 
@@ -245,7 +245,7 @@ def train_one_epoch(model, dataloader, optimizer, survival_model, device):
 
         optimizer.zero_grad()
         
-        if DROP_MODALITY: ## @@@@@@@do not use during evaluation. comment this out after the comparision with the new models is done on the test set. ####@@@@@@@@@@@@@
+        if DROP_MODALITY:
             clin, rna, wsi = modality_dropout(clin_feat=clin, rna_feat=rna, wsi_feat=wsi)
 
         outputs = model(clinical_feat=clin, rna_feat=rna, wsi_feat=wsi)

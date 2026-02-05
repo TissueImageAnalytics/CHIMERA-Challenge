@@ -39,12 +39,12 @@ elif TASK == 3:
     TIME_COLUMN = 'Time_to_prog_or_FUend'
 
 # === Clinical Features to Use ===
-#CLINICAL_FEATURES = ['age', 'sex', 'tumor', 'stage', 'grade', 'reTUR', 'variant', 'EORTC', 'no_instillations', 'BRS']
-CLINICAL_FEATURES = ['age', 'sex', 'stage', 'grade', 'reTUR', 'variant', 'EORTC', 'BRS']
+CLINICAL_FEATURES = ['age', 'sex', 'stage', 'grade', 'reTUR', 'variant', 'EORTC', 'BRS'] # full set
+CLINICAL_FEATURES = ['age', 'sex', 'reTUR'] # reduce to non-image feature set  # removed these ['stage','substage','grade','variant','EORTC','BRS','LVI’]
 
 # === Experiment settings ===
 USE_CLINICAL_FEATURES = True
-USE_RNA_FEATURES = False
+USE_RNA_FEATURES = True
 USE_WSI_FEATURES = True
 
 # modality drop out during training
@@ -60,11 +60,11 @@ FUSION_DROPOUT = 0.1 ## drop out for each projection head for each modality
 
 SURVIVAL_MODEL = 'deephit'  # Options: 'cox' or 'deephit' or 'deepsurv'
 FUSION_TYPE = 'cross_att'  # Options: 'modality' (softmax weights per modality) or 'linear' (linear layer after concat) or 'simple' (concat with no learnable params),  'cross_att' (AS cross attention fusion)
-DEEPHIT_LOSS = 'uncensored' # 'censored' or 'uncensored'. 'censored' has a extra term for accounting for censored data whereas 'uncensored' only considers uncensored cases
+DEEPHIT_LOSS = 'censored' # 'censored' or 'uncensored'. 'censored' has a extra term for accounting for censored data whereas 'uncensored' only considers uncensored cases
 
 TIME_BINS = 30  # Only for deephit
 
-BIN_EDGES = True ## set to true if changing discrete bins to bins with edges so that the times are not pushed to the few last bins
+BIN_EDGES = False ## set to true if changing discrete bins to bins with edges so that the times are not pushed to the few last bins
 NUM_FOLDS = 5
 SEED = 42
 HIDDEN_DIM = 128  # or 128, tune as needed
@@ -102,8 +102,8 @@ INFER_SINGLE = False ## True means: print score for a single file using the Chal
                     ## Note: the INFER_SINGLE will not produce c-index but only print the score of the first case from the csv file CLINICAL_CSV
 
 if SURVIVAL_MODEL == 'cox':
-    GLOBAL_DIR = f"{OUTPUT_DIR}clin_{USE_CLINICAL_FEATURES}_rna_{USE_RNA_FEATURES}_wsi_{USE_WSI_FEATURES}_model_CoxPH/"
+    GLOBAL_DIR = f"{OUTPUT_DIR}clin_{USE_CLINICAL_FEATURES}_rna_{USE_RNA_FEATURES}_wsi_{USE_WSI_FEATURES}_model_CoxPH_postchallenge/"
 else:
-    GLOBAL_DIR = f"{OUTPUT_DIR}clin_{USE_CLINICAL_FEATURES}_rna_{USE_RNA_FEATURES}_wsi_{USE_WSI_FEATURES}_embed_{EMBEDDER}_model_{SURVIVAL_MODEL}_fuse_{FUSION_TYPE}_loss_{DEEPHIT_LOSS}_scale_{SCALE_DATA}_ep_{EPOCHS}_ModDrop_{DROP_MODALITY}_binEdg_{BIN_EDGES}/" ## main path for results
+    GLOBAL_DIR = f"{OUTPUT_DIR}clin_{USE_CLINICAL_FEATURES}_rna_{USE_RNA_FEATURES}_wsi_{USE_WSI_FEATURES}_embed_{EMBEDDER}_model_{SURVIVAL_MODEL}_fuse_{FUSION_TYPE}_loss_{DEEPHIT_LOSS}_scale_{SCALE_DATA}_ep_{EPOCHS}_ModDrop_{DROP_MODALITY}_binEdg_{BIN_EDGES}_postchallenge/" ## main path for results
 #GLOBAL_DIR = f"{OUTPUT_DIR}task3_submission1_clin_wsi_xatt_modDrop"
-GLOBAL_DIR = f"{OUTPUT_DIR}task3_submission3_clin_wsi"
+#GLOBAL_DIR = f"{OUTPUT_DIR}task3_submission4_clin_wsi"

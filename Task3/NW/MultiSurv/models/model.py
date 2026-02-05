@@ -65,32 +65,120 @@ class SimpleConcatFusion(nn.Module):
     def forward(self, features):
         return torch.cat(features, dim=1)
 
+class CrossModalBlock(nn.Module):
+    """Cross-attention block with residuals, FFN, and LayerNorm."""
+    def __init__(self, dim, num_heads=4, ff_mult=4):
+        super().__init__()
+        
+        self.attn = nn.MultiheadAttention(
+            embed_dim=dim,
+            num_heads=num_heads,
+            batch_first=True,
+            dropout=0.1
+        )
+        
+        # Residual 1
+        self.norm1 = nn.LayerNorm(dim)
+
+        # Feed-forward network
+        self.ff = nn.Sequential(
+            nn.Linear(dim, ff_mult * dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(ff_mult * dim, dim)
+        )
+        
+        # Residual 2
+        self.norm2 = nn.LayerNorm(dim)
+
+    def forward(self, query, key_value):
+        # Attention: query attends to key/value
+        attn_out, _ = self.attn(query, key_value, key_value)
+        
+        # Residual + Norm
+        x = self.norm1(query + attn_out)
+        
+        # FFN + Residual + Norm
+        x = self.norm2(x + self.ff(x))
+        
+        return x
+
 class CrossAttentionFusion(nn.Module):
-    def __init__(self, dim, num_heads=4):
+    """
+    Generic cross-attention fusion for N modalities.
+    - Expects input `features` as list of tensors [B, D] (D == dim).
+    - Each modality queries the other modalities (no self-attention).
+    - Uses CrossModalBlock for attention + FFN + residuals.
+    - Computes sample-specific gating weights from attended vectors.
+    - Returns fused [B, dim].
+    """
+    def __init__(self, dim=128, num_modalities=2, num_heads=4):
         super().__init__()
         self.dim = dim
+        self.num_modalities = num_modalities
         self.num_heads = num_heads
-        self.attn_layers = nn.ModuleList([
-            nn.MultiheadAttention(embed_dim=dim[d], num_heads=num_heads, batch_first=True)
-            for d in range(len(dim))
+
+        # one CrossModalBlock per modality (query block)
+        self.blocks = nn.ModuleList([
+            CrossModalBlock(dim, num_heads=num_heads) for _ in range(num_modalities)
         ])
 
+        # gating network: from concatenated attended features -> softmax weights over modalities
+        self.gate = nn.Sequential(
+            nn.Linear(num_modalities * dim, dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(dim, num_modalities),
+            nn.Softmax(dim=-1)
+        )
+
+        # final projection (optional)
+        self.proj = nn.Linear(dim, dim)
+
     def forward(self, features):
-        #B = features[0].size(0)
+        """
+        features: list of length N, each tensor of shape [B, dim]
+        returns: fused tensor [B, dim]
+        """
+        if not isinstance(features, (list, tuple)):
+            raise ValueError("CrossAttentionFusion expects a list of modality tensors")
+
         N = len(features)
+        if N != self.num_modalities:
+            # allow flexible behavior: if number differs, adapt by rebuilding blocks? here assert
+            # simpler: allow runtime mismatch by using min(self.num_modalities, N)
+            # but safer to raise so initialization matches usage.
+            raise ValueError(f"Expected {self.num_modalities} modalities, got {N}")
 
-        #keys_values = torch.stack(features, dim=1)  # [B, N, D]
+        B = features[0].size(0)
+        # Convert each to sequence format [B, 1, D]
+        seq = [f.unsqueeze(1) for f in features]  # list of [B,1,D]
+
         attended = []
-
+        # For each modality i, make it query the remaining modalities (stack keys/values)
         for i in range(N):
-            query = features[i].unsqueeze(1)  # [B, 1, D]
-            attn = self.attn_layers[i]
-            # Exclude self from keys/values to force intermodal learning
-            kv = torch.stack([features[j] for j in range(N) if j != i], dim=1)  # [B, N-1, D]
-            out, _ = attn(query, kv, kv)
-            attended.append(out.squeeze(1))  # [B, D]
+            query = seq[i]  # [B,1,D]
+            # collect keys/values from j != i
+            kv_list = [seq[j] for j in range(N) if j != i]
+            if len(kv_list) == 0:
+                # single modality -> identity
+                attended.append(query.squeeze(1))
+                continue
+            kv = torch.cat(kv_list, dim=1)  # [B, N-1, D] (concatenate along sequence dim)
+            # Use the i-th block: query attends to kv
+            out = self.blocks[i](query, kv)  # returns [B,1,D]
+            attended.append(out.squeeze(1))   # store [B,D]
 
-        fused = torch.mean(torch.stack(attended, dim=1), dim=1)  # [B, D]
+        # Stack attended: [B, N, D]
+        attended_stack = torch.stack(attended, dim=1)
+
+        # Compute gating weights per sample from concatenated attended vectors
+        concat_att = attended_stack.view(B, N * self.dim)  # [B, N*D]
+        weights = self.gate(concat_att)  # [B, N], sums to 1 across modalities
+
+        # Weighted sum across modalities
+        weights = weights.unsqueeze(-1)  # [B, N, 1]
+        fused = (attended_stack * weights).sum(dim=1)  # [B, D]
+
+        fused = self.proj(fused)
         return fused
 
 class CoxHead(nn.Module):
@@ -159,8 +247,10 @@ class MultimodalSurvivalModel(nn.Module):
             fusion_dim = HIDDEN_DIM
             self.fusion = LinearFusion(input_dims)
         elif FUSION_TYPE == "cross_att":
+            #fusion_dim = HIDDEN_DIM
+            #self.fusion = CrossAttentionFusion(input_dims)
+            self.fusion = CrossAttentionFusion(dim=HIDDEN_DIM, num_modalities=len(input_dims))
             fusion_dim = HIDDEN_DIM
-            self.fusion = CrossAttentionFusion(input_dims)
         else:
             raise ValueError(f"Unknown fusion method: {FUSION_TYPE}")
 

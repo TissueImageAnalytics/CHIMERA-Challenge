@@ -10,6 +10,17 @@ from sksurv.metrics import concordance_index_censored
 from sklearn.preprocessing import StandardScaler
 import joblib
 import json
+from sklearn.decomposition import PCA
+
+def maybe_reduce_rna(val_rna, run=0, fold=0):
+    os.makedirs(GLOBAL_DIR, exist_ok=True)
+    
+    pca_path = os.path.join(GLOBAL_DIR, f"rna_pca_run_{run}_{fold}.pkl")
+    print(f" Loading saved PCA model for run {run}_fold {fold}")
+    pca = joblib.load(pca_path)
+    val_rna = pca.transform(val_rna)
+
+    return val_rna
 
 def get_or_fit_scaler(name, train_array, fit=True, run=0, fold=0):
     os.makedirs(GLOBAL_DIR, exist_ok=True)
@@ -80,7 +91,7 @@ def inference(test_case_ids):
         test_case_ids = [test_case.split('.json')[0]]
     
     test_rna_array = load_rna_features(test_case_ids) if USE_RNA_FEATURES else None
-
+            
     if AGGREG_CASE_WSI:
         test_wsi_array = load_wsi_features_mult(test_case_ids, csv_path=WSI_FEATURES_CSV) if USE_WSI_FEATURES else None
     else:
@@ -90,13 +101,18 @@ def inference(test_case_ids):
     c_dim = test_clin_array.shape[1] if (USE_CLINICAL_FEATURES and test_clin_array is not None) else 0
     r_dim = test_rna_array.shape[1] if (USE_RNA_FEATURES and test_rna_array is not None) else 0
     w_dim = test_wsi_array.shape[1] if (USE_WSI_FEATURES and test_wsi_array is not None) else 0
-
+    
+    if USE_RNA_FEATURES:
+        if RNA_DIM_REDUCE_TO < RNA_FEATURE_DIM:
+            r_dim = RNA_DIM_REDUCE_TO
+    
     # Prepare model template
     model = MultimodalSurvivalModel(
         clin_dim=c_dim,
         rna_dim=r_dim,
         wsi_dim=w_dim,
     )
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
@@ -119,8 +135,13 @@ def inference(test_case_ids):
                 print(f"[Warning] Model missing for fold {fold_idx}: {model_path}")
                 continue
 
+            
             fold_clin_array, _ = maybe_scale("clinical", test_clin_array, test_clin_array, fit=False, run=best_run, fold=fold_idx) if USE_CLINICAL_FEATURES else (None, None)
             fold_rna_array, _ = maybe_scale("rna", test_rna_array, test_rna_array, fit=False, run=best_run, fold=fold_idx) if USE_RNA_FEATURES else (None, None)
+            if USE_RNA_FEATURES:
+                if RNA_DIM_REDUCE_TO < RNA_FEATURE_DIM:
+                    fold_rna_array = maybe_reduce_rna(fold_rna_array, run=best_run, fold=fold_idx)
+
             fold_wsi_array, _ = maybe_scale("wsi", test_wsi_array, test_wsi_array, fit=False, run=best_run, fold=fold_idx) if USE_WSI_FEATURES else (None, None)
 
             if fold_clin_array is not None and fold_clin_array.ndim == 1:
@@ -131,8 +152,8 @@ def inference(test_case_ids):
                 fold_wsi_array = fold_wsi_array.reshape(1, -1)
 
             clin_tensor = torch.tensor(fold_clin_array, dtype=torch.float32).to(device) if c_dim > 0 else None
-            rna_tensor  = torch.tensor(fold_rna_array, dtype=torch.float32).to(device) if r_dim > 0 else None
-            wsi_tensor  = torch.tensor(fold_wsi_array, dtype=torch.float32).to(device) if w_dim > 0 else None
+            rna_tensor = torch.tensor(fold_rna_array, dtype=torch.float32).to(device) if r_dim > 0 else None
+            wsi_tensor = torch.tensor(fold_wsi_array, dtype=torch.float32).to(device) if w_dim > 0 else None
 
             model.load_state_dict(torch.load(model_path, map_location=device))
             model.eval()
@@ -235,7 +256,7 @@ if __name__ == "__main__":
     clinical_df_sorted = clinical_df[clinical_df['Case_ID'].isin(all_case_ids)].sort_values('Case_ID')
     durations = clinical_df_sorted['duration'].values
     events = clinical_df_sorted['event'].values
-    print(clinical_df_sorted.head(5))
+    #print(clinical_df_sorted.head(5))
     preds = np.array([predictions[cid] for cid in clinical_df_sorted['Case_ID'].tolist()])
 
     # Compute C-index

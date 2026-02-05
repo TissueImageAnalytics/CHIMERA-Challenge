@@ -12,6 +12,10 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
 def encode_clinical_features(df: pd.DataFrame) -> pd.DataFrame:
+    # ================================
+    # FULL CLINICAL FEATURE MAPPING
+    # (comment this block out to use reduced features)
+    # ================================
     mappings = {
         "sex": {"Male": 0, "Female": 1},
         "stage": {"TaHG": 0, "T1HG": 1, "T2HG": 2},
@@ -22,18 +26,30 @@ def encode_clinical_features(df: pd.DataFrame) -> pd.DataFrame:
         "BRS": {"BRS1": 1, "BRS2": 2, "BRS3": 3}
     }
 
+    # ================================
+    # REDUCED CLINICAL FEATURE MAPPING
+    # (uncomment this block when needed)
+    # ================================
+    # mappings = {
+    #     "sex": {"Male": 0, "Female": 1}
+    # }
+
     df_encoded = df.copy()
 
     for col, mapping in mappings.items():
         if col in df_encoded.columns:
-            df_encoded[col] = df_encoded[col].astype(str).str.strip()  # Remove extra whitespace
+            df_encoded[col] = df_encoded[col].astype(str).str.strip()
             df_encoded[col] = df_encoded[col].map(mapping)
-    
-    unmapped = df_encoded[col].isna().sum()
-    if unmapped > 0:
-        raise ValueError(f"{unmapped} values in column '{col}' could not be mapped. Please fix input data.")
+
+            unmapped = df_encoded[col].isna().sum()
+            if unmapped > 0:
+                raise ValueError(
+                    f"{unmapped} values in column '{col}' could not be mapped. "
+                    "Please fix input data."
+                )
 
     return df_encoded
+
 
 def load_clinical():
     clinical_df = pd.read_csv(CLINICAL_CSV)
