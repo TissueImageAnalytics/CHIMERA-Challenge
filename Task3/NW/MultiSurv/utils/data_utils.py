@@ -4,11 +4,13 @@ import pandas as pd
 from sklearn.model_selection import StratifiedKFold
 #from config import *
 import glob
+import json
+
+from pathlib import Path
 
 import re
 from config import *
 
-import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
 def encode_clinical_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -49,7 +51,6 @@ def encode_clinical_features(df: pd.DataFrame) -> pd.DataFrame:
                 )
 
     return df_encoded
-
 
 def load_clinical():
     clinical_df = pd.read_csv(CLINICAL_CSV)
@@ -93,6 +94,60 @@ def load_rna_features(case_ids):
     # Build aligned feature matrix (fill with zeros if missing)
     rna_features = np.stack([
         rna_df.loc[cid].values if cid in rna_df.index else np.zeros(len(feature_cols), dtype=np.float32)
+        for cid in case_ids
+    ])
+
+    return rna_features
+
+
+def load_rna_features_json(case_ids):
+    """
+    Load RNA-seq features from per-case JSON files.
+
+    Parameters
+    ----------
+    case_ids : list[str]
+        List of case IDs in desired order.
+    RNA_JSON_DIR : str or Path
+        Directory containing JSON files named <Case_ID>_RNA.json
+
+    Returns
+    -------
+    np.ndarray
+        Shape: (len(case_ids), num_genes)
+    """
+
+    json_dir = Path(RNA_JSON_DIR)
+
+    rna_dict = {}
+    all_genes = set()
+
+    # Load JSONs
+    for cid in case_ids:
+        json_path = json_dir / f"{cid}_RNA.json"
+        if json_path.exists():
+            with open(json_path, "r") as f:
+                gene_dict = json.load(f)
+
+            rna_dict[cid] = gene_dict
+            all_genes.update(gene_dict.keys())
+        else:
+            rna_dict[cid] = None
+
+    # Sort genes for consistent ordering
+    feature_cols = sorted(all_genes)
+
+    # Warn about missing case IDs
+    missing_ids = [cid for cid, data in rna_dict.items() if data is None]
+    if missing_ids:
+        print(f"Warning: Missing RNA features for case IDs: {missing_ids}")
+
+    # Build aligned feature matrix
+    rna_features = np.stack([
+        np.array(
+            [rna_dict[cid].get(g, 0.0) if rna_dict[cid] is not None else 0.0 for g in feature_cols],
+            dtype=np.float32
+        )
         for cid in case_ids
     ])
 
