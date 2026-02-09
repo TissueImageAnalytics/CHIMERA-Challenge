@@ -38,7 +38,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
 # RUN pip install pyvips
 # RUN pip install SimpleITK
 # RUN pip install numpy
-RUN pip install tiatoolbox
+RUN pip install tiatoolbox==1.6.0
 RUN pip install scikit-learn==1.6.1
 RUN pip install numcodecs==0.15.1
 # RUN pip install lifelines==0.30.0
@@ -75,36 +75,22 @@ COPY --chown=user:user resources /opt/app/resources
 # COPY --chown=user:user task1_submission_clinical /opt/app/resources/task1_submission_clinical
 
 # Copy all model weights
-COPY --chown=user:user weights_scalers_folder /opt/app/resources/weights_scalers_folder
+COPY --chown=user:user clin2_rna_wsi /opt/app/resources/clin2_rna_wsi
 
 # Copy code
-COPY --chown=user:user --chmod=0755 task3_commands.sh /opt/app/
-# COPY --chown=user:user --chmod=0755 task_1_inference.py /opt/app/
-# COPY --chown=user:user --chmod=0755 convert_tissue_mask_for_trident.py /opt/app/
-# COPY --chown=user:user --chmod=0755 task3_inference_114.py /opt/app/
-# COPY --chown=user:user --chmod=0755 config114.py /opt/app/
-COPY --chown=user:user --chmod=0755 task3_inference_15.py /opt/app/
-COPY --chown=user:user --chmod=0755 config_15.py /opt/app/
-COPY --chown=user:user --chmod=0755 model_15.py /opt/app/
-COPY --chown=user:user --chmod=0755 data_utils_15.py /opt/app/
-# COPY --chown=user:user --chmod=0755 data_utils.py /opt/app/
-# COPY --chown=user:user --chmod=0755 model.py /opt/app/
-# COPY --chown=user:user --chmod=0755 resnet.py /opt/app/
-# COPY --chown=user:user --chmod=0755 clinical_only_inference.py /opt/app/
+COPY --chown=user:user --chmod=0755 post_challenge_commands.sh /opt/app/
+COPY --chown=user:user --chmod=0755 post_challenge_clin2_wsi_rna.py /opt/app/
+COPY --chown=user:user --chmod=0755 post_challenge_config.py /opt/app/
+COPY --chown=user:user --chmod=0755 post_challenge_model.py /opt/app/
+COPY --chown=user:user --chmod=0755 post_challenge_data_utils.py /opt/app/
 
 # Copy TITAN related weights
 COPY --chown=user:user --chmod=0755 titan /home/user/.cache/huggingface/modules/transformers_modules/titan
 COPY --chown=user:user --chmod=0755 resnet50-0676ba61.pth /home/user/.cache/torch/hub/checkpoints
 COPY --chown=user:user --chmod=0755 hest_tissue_seg /opt/app/hest_tissue_seg
 
-# Copy PRISM related weights
-# COPY --chown=user:user --chmod=0755 Prism /home/user/.cache/huggingface/modules/transformers_modules/prism
-# COPY --chown=user:user --chmod=0755 resnet50-0676ba61.pth /home/user/.cache/torch/hub/checkpoints
-# COPY --chown=user:user --chmod=0755 hest_tissue_seg /opt/app/hest_tissue_seg
-# COPY --chown=user:user --chmod=0755 virchow /home/user/.cache/huggingface/modules/transformers_modules/virchow
-# COPY --chown=user:user --chmod=0755 biogpt /opt/app/biogpt
 
 WORKDIR /opt/app/
 USER user
 # ENTRYPOINT python l1_pipeline.py
-ENTRYPOINT ["./task3_commands.sh"]
+ENTRYPOINT ["./post_challenge_commands.sh"]

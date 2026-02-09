@@ -4,7 +4,7 @@
 set -e
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-DOCKER_IMAGE_TAG="tia-pegasus-bladder-cancer-survival-prediction"
+DOCKER_IMAGE_TAG="tia-pegasus-task3-post-challenge-clin2-wsi-rna"
 
 docker build \
   --platform=linux/amd64 \

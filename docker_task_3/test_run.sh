@@ -4,7 +4,7 @@ trap 'echo "Script failed at line $LINENO"; exit 1' ERR
 set -x
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-DOCKER_IMAGE_TAG="tia-pegasus-bladder-cancer-survival-prediction"
+DOCKER_IMAGE_TAG="tia-pegasus-task3-post-challenge-clin2-wsi-rna"
 
 DOCKER_NOOP_VOLUME="${DOCKER_IMAGE_TAG}-volume"
 
